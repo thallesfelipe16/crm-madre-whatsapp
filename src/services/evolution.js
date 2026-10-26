@@ -18,6 +18,7 @@ async function criarInstancia(instanceName, webhookUrl, webhookSecret) {
     headers: _headers(),
     body: JSON.stringify({
       instanceName,
+      integration: 'WHATSAPP-BAILEYS',
       webhook: {
         enabled: true,
         url: webhookUrl,
