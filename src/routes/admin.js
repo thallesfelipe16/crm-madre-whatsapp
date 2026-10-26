@@ -56,4 +56,112 @@ router.get('/instances/:ref/qr', async (req, res) => {
   }
 });
 
+// GET /admin/conversations — lista conversas (filtros: instance_ref, state, page)
+router.get('/conversations', async (req, res) => {
+  try {
+    const { instance_ref, state, page = 1 } = req.query;
+    const limit = 30;
+    const offset = (Number(page) - 1) * limit;
+
+    const conditions = [];
+    const params = [];
+    if (instance_ref) { params.push(instance_ref); conditions.push(`c.instance_ref = $${params.length}`); }
+    if (state)         { params.push(state);         conditions.push(`c.state = $${params.length}`); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(limit, offset);
+
+    const { rows } = await db.query(
+      `SELECT c.id, c.instance_ref, c.state, c.last_message_at, c.unread_count,
+              ct.phone_e164, ct.display_name,
+              m.body AS last_body, m.direction AS last_direction
+       FROM wa_conversations c
+       JOIN wa_contacts ct ON ct.id = c.contact_id
+       LEFT JOIN LATERAL (
+         SELECT body, direction FROM wa_messages
+         WHERE conversation_id = c.id
+         ORDER BY received_at DESC, id DESC LIMIT 1
+       ) m ON true
+       ${where}
+       ORDER BY c.last_message_at DESC NULLS LAST
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    return res.json({ conversations: rows });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// GET /admin/conversations/:id/messages — mensagens de uma conversa
+router.get('/conversations/:id/messages', async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT id, direction, message_type, body, provider_timestamp, received_at, status
+       FROM wa_messages
+       WHERE conversation_id = $1
+       ORDER BY received_at ASC, id ASC`,
+      [req.params.id]
+    );
+    return res.json({ messages: rows });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// PATCH /admin/conversations/:id/state — muda estado da conversa
+router.patch('/conversations/:id/state', async (req, res) => {
+  const { state } = req.body;
+  const valid = ['open', 'pending', 'resolved', 'archived'];
+  if (!valid.includes(state)) return res.status(400).json({ erro: 'Estado inválido.' });
+  try {
+    await db.query(
+      `UPDATE wa_conversations SET state = $1, updated_at = NOW() WHERE id = $2`,
+      [state, req.params.id]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// POST /admin/conversations/:id/send — envia mensagem
+router.post('/conversations/:id/send', async (req, res) => {
+  const { text } = req.body;
+  if (!text?.trim()) return res.status(400).json({ erro: 'Texto obrigatório.' });
+
+  try {
+    const { rows } = await db.query(
+      `SELECT c.instance_ref, ct.phone_e164
+       FROM wa_conversations c JOIN wa_contacts ct ON ct.id = c.contact_id
+       WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ erro: 'Conversa não encontrada.' });
+
+    const { instance_ref, phone_e164 } = rows[0];
+    const { enviarTexto } = require('../services/evolution');
+    const result = await enviarTexto(instance_ref, phone_e164.replace('+', ''), text.trim());
+
+    const { v4: uuidv4 } = require('uuid');
+    await db.query(
+      `INSERT INTO wa_messages
+         (id, conversation_id, instance_ref, provider_message_id, direction,
+          message_type, body, received_at, status)
+       VALUES ($1, $2, $3, $4, 'outbound', 'text', $5, NOW(), 'sent')`,
+      [uuidv4(), req.params.id, instance_ref, result?.key?.id || null, text.trim()]
+    );
+
+    await db.query(
+      `UPDATE wa_conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 module.exports = router;
