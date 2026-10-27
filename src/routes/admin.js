@@ -361,7 +361,8 @@ router.post('/conversations/:id/criar-lead', async (req, res) => {
 
   try {
     const CRM_API = process.env.CRM_API_URL || 'https://api-madre.arcorastudio.com.br';
-    const CRM_TOKEN = process.env.CRM_INTERNAL_TOKEN || '';
+    // Token: prefere o forwarded do frontend, cai no env como fallback
+    const crmToken = req.headers['x-crm-token'] || process.env.CRM_INTERNAL_TOKEN || '';
 
     // Obtém o telefone da conversa se não passado
     let phone = telefone;
@@ -373,11 +374,11 @@ router.post('/conversations/:id/criar-lead', async (req, res) => {
       phone = rows[0]?.phone_e164?.replace('+55', '') || null;
     }
 
-    const crmRes = await fetch(`${CRM_API}/leads`, {
+    const crmRes = await fetch(`${CRM_API}/api/leads`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(CRM_TOKEN ? { 'Authorization': `Bearer ${CRM_TOKEN}` } : {}),
+        ...(crmToken ? { 'Authorization': `Bearer ${crmToken}` } : {}),
       },
       body: JSON.stringify({
         nome_responsavel,
