@@ -228,6 +228,60 @@ router.post('/conversations/:id/send-media', async (req, res) => {
   }
 });
 
+// POST /admin/conversations/iniciar — encontra ou cria conversa para um número
+// Usado pelo CRM para abrir lead diretamente no Inbox
+router.post('/conversations/iniciar', async (req, res) => {
+  const { phone, instance_ref } = req.body;
+  if (!phone) return res.status(400).json({ erro: 'phone obrigatório.' });
+
+  // Normaliza para E.164
+  const digits = phone.replace(/\D/g, '');
+  const phoneE164 = digits.startsWith('+') ? digits : `+${digits}`;
+
+  try {
+    // Instância padrão: primeira disponível ou a passada
+    const { listInstances } = require('../config/instances');
+    const ref = instance_ref || listInstances()[0]?.ref;
+    if (!ref) return res.status(503).json({ erro: 'Nenhuma instância configurada.' });
+
+    // Verifica se já existe conversa ativa
+    const { rows } = await db.query(
+      `SELECT c.id FROM wa_conversations c
+       JOIN wa_contacts ct ON ct.id = c.contact_id
+       WHERE ct.phone_e164 = $1 AND c.instance_ref = $2
+       ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1`,
+      [phoneE164, ref]
+    );
+
+    if (rows.length) {
+      return res.json({ conversation_id: rows[0].id, criada: false });
+    }
+
+    // Não existe — cria contato + conversa (sem enviar mensagem ainda)
+    const { v4: uuidv4 } = require('uuid');
+    const { rows: ctRows } = await db.query(
+      `INSERT INTO wa_contacts (id, instance_ref, phone_e164, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (instance_ref, phone_e164) DO UPDATE SET updated_at = NOW()
+       RETURNING id`,
+      [uuidv4(), ref, phoneE164]
+    );
+    const contactId = ctRows[0].id;
+
+    const { rows: convRows } = await db.query(
+      `INSERT INTO wa_conversations (id, instance_ref, contact_id, state, updated_at)
+       VALUES ($1, $2, $3, 'open', NOW())
+       ON CONFLICT (instance_ref, contact_id) DO UPDATE SET updated_at = NOW()
+       RETURNING id`,
+      [uuidv4(), ref, contactId]
+    );
+
+    return res.json({ conversation_id: convRows[0].id, criada: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // POST /admin/instances/:ref/webhook-reset — re-configura webhook com webhook_base64=true
 router.post('/instances/:ref/webhook-reset', async (req, res) => {
   const { ref } = req.params;
