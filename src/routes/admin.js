@@ -104,7 +104,7 @@ router.get('/conversations', async (req, res) => {
 router.get('/conversations/:id/messages', async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, direction, message_type, body, provider_timestamp, received_at, status
+      `SELECT id, direction, message_type, body, media_mime_type, provider_timestamp, received_at, status
        FROM wa_messages
        WHERE conversation_id = $1
        ORDER BY received_at ASC, id ASC`,
@@ -204,8 +204,10 @@ router.post('/conversations/:id/send-media', async (req, res) => {
     const result = await enviarMidia(instance_ref, phone_e164.replace('+', ''), { mediatype, mimetype, media, fileName, caption });
 
     const { v4: uuidv4 } = require('uuid');
+    // Strip data URL prefix se vier do frontend (data:image/jpeg;base64,...)
+    const pureBase64 = media.includes(',') ? media.split(',')[1] : media;
     // Para outbound, salva base64 inline — evita round-trip ao Evolution
-    const inlineKey = JSON.stringify({ type: 'inline', base64: media, mimetype });
+    const inlineKey = JSON.stringify({ type: 'inline', base64: pureBase64, mimetype });
     await db.query(
       `INSERT INTO wa_messages
          (id, conversation_id, instance_ref, provider_message_id, direction,
