@@ -79,6 +79,7 @@ router.get('/conversations', async (req, res) => {
     const { rows } = await db.query(
       `SELECT c.id, c.instance_ref, c.state, c.last_message_at, c.unread_count,
               c.assigned_user_ref, c.assigned_user_name,
+              c.status_funil, c.lead_crm_id, c.lead_nome,
               ct.phone_e164, ct.display_name,
               m.body AS last_body, m.direction AS last_direction
        FROM wa_conversations c
@@ -317,6 +318,86 @@ router.post('/instances/:ref/webhook-reset', async (req, res) => {
     const { atualizarWebhook } = require('../services/evolution');
     const result = await atualizarWebhook(ref, webhookUrl, cfg.webhookSecret);
     return res.json({ ok: true, result });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// PATCH /admin/conversations/:id/status-funil — atualiza etapa do funil
+router.patch('/conversations/:id/status-funil', async (req, res) => {
+  const { status_funil } = req.body;
+  const VALID = [
+    'novo_lead','contato_realizado','visita_agendada','visita_realizada',
+    'teste_agendado','em_negociacao','fila_espera','matricula_concluida',
+    'reprovado','perdido',
+  ];
+  if (status_funil !== null && !VALID.includes(status_funil)) {
+    return res.status(400).json({ erro: 'status_funil inválido.' });
+  }
+  try {
+    await db.query(
+      `UPDATE wa_conversations SET status_funil = $1, updated_at = NOW() WHERE id = $2`,
+      [status_funil, req.params.id]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// POST /admin/conversations/:id/criar-lead — cria lead no CRM e vincula à conversa
+router.post('/conversations/:id/criar-lead', async (req, res) => {
+  const { nome_responsavel, telefone, serie_interesse, unidade_id, status_funil } = req.body;
+  if (!nome_responsavel) return res.status(400).json({ erro: 'nome_responsavel obrigatório.' });
+
+  try {
+    const CRM_API = process.env.CRM_API_URL || 'https://api-madre.arcorastudio.com.br';
+    const CRM_TOKEN = process.env.CRM_INTERNAL_TOKEN || '';
+
+    // Obtém o telefone da conversa se não passado
+    let phone = telefone;
+    if (!phone) {
+      const { rows } = await db.query(
+        `SELECT ct.phone_e164 FROM wa_conversations c JOIN wa_contacts ct ON ct.id = c.contact_id WHERE c.id = $1`,
+        [req.params.id]
+      );
+      phone = rows[0]?.phone_e164?.replace('+55', '') || null;
+    }
+
+    const crmRes = await fetch(`${CRM_API}/leads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(CRM_TOKEN ? { 'Authorization': `Bearer ${CRM_TOKEN}` } : {}),
+      },
+      body: JSON.stringify({
+        nome_responsavel,
+        telefone: phone,
+        serie_interesse: serie_interesse || null,
+        unidade_id: unidade_id || null,
+        status_atual: status_funil || 'contato_realizado',
+        origem: 'whatsapp_inbox',
+      }),
+    });
+
+    if (!crmRes.ok) {
+      const err = await crmRes.text();
+      return res.status(502).json({ erro: `CRM recusou: ${err}` });
+    }
+
+    const lead = await crmRes.json();
+    const leadId = lead?.id || lead?.lead?.id;
+    const leadNome = lead?.nome_responsavel || lead?.lead?.nome_responsavel || nome_responsavel;
+
+    // Vincula conversa ao lead
+    await db.query(
+      `UPDATE wa_conversations
+       SET lead_crm_id = $1, lead_nome = $2, status_funil = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [leadId, leadNome, status_funil || 'contato_realizado', req.params.id]
+    );
+
+    return res.json({ ok: true, lead_id: leadId, lead_nome: leadNome });
   } catch (err) {
     return res.status(500).json({ erro: err.message });
   }
