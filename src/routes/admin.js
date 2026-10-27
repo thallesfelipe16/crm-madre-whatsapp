@@ -358,11 +358,10 @@ router.patch('/conversations/:id/status-funil', async (req, res) => {
 router.post('/conversations/:id/criar-lead', async (req, res) => {
   const { nome_responsavel, telefone, serie_interesse, unidade_id, status_funil } = req.body;
   if (!nome_responsavel) return res.status(400).json({ erro: 'nome_responsavel obrigatório.' });
+  if (!serie_interesse)  return res.status(400).json({ erro: 'serie_interesse obrigatório.' });
 
   try {
-    const CRM_API = process.env.CRM_API_URL || 'https://api-madre.arcorastudio.com.br';
-    // Token: prefere o forwarded do frontend, cai no env como fallback
-    const crmToken = req.headers['x-crm-token'] || process.env.CRM_INTERNAL_TOKEN || '';
+    const { criarLead } = require('../services/crm');
 
     // Obtém o telefone da conversa se não passado
     let phone = telefone;
@@ -371,35 +370,21 @@ router.post('/conversations/:id/criar-lead', async (req, res) => {
         `SELECT ct.phone_e164 FROM wa_conversations c JOIN wa_contacts ct ON ct.id = c.contact_id WHERE c.id = $1`,
         [req.params.id]
       );
-      phone = rows[0]?.phone_e164?.replace('+55', '') || null;
+      phone = rows[0]?.phone_e164 || null;
     }
 
-    const crmRes = await fetch(`${CRM_API}/api/leads`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(crmToken ? { 'Authorization': `Bearer ${crmToken}` } : {}),
-      },
-      body: JSON.stringify({
-        nome_responsavel,
-        telefone: phone,
-        serie_interesse: serie_interesse || null,
-        unidade_id: unidade_id || null,
-        status_atual: status_funil || 'contato_realizado',
-        origem: 'whatsapp_inbox',
-      }),
+    const lead = await criarLead({
+      nome_responsavel,
+      telefone: phone,
+      serie_interesse,
+      unidade_id: unidade_id || null,
+      status_atual: status_funil || 'contato_realizado',
+      origem_lead: 'whatsapp_inbox',
     });
 
-    if (!crmRes.ok) {
-      const err = await crmRes.text();
-      return res.status(502).json({ erro: `CRM recusou: ${err}` });
-    }
-
-    const lead = await crmRes.json();
-    const leadId = lead?.id || lead?.lead?.id;
+    const leadId   = lead?.id   || lead?.lead?.id;
     const leadNome = lead?.nome_responsavel || lead?.lead?.nome_responsavel || nome_responsavel;
 
-    // Vincula conversa ao lead
     await db.query(
       `UPDATE wa_conversations
        SET lead_crm_id = $1, lead_nome = $2, status_funil = $3, updated_at = NOW()
