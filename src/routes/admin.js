@@ -148,7 +148,7 @@ router.patch('/conversations/:id/state', async (req, res) => {
   }
 });
 
-// GET /admin/messages/:id/media — proxy de mídia (busca base64 da Evolution)
+// GET /admin/messages/:id/media — proxy de mídia
 router.get('/messages/:id/media', async (req, res) => {
   try {
     const { rows } = await db.query(
@@ -158,6 +158,16 @@ router.get('/messages/:id/media', async (req, res) => {
     if (!rows.length || !rows[0].media_key) return res.status(404).json({ erro: 'Mídia não encontrada.' });
 
     const { instance_ref, media_mime_type, media_key } = rows[0];
+
+    // Inline (outbound salvo com base64 direto)
+    if (media_key.type === 'inline') {
+      const buf = Buffer.from(media_key.base64, 'base64');
+      res.set('Content-Type', media_key.mimetype || media_mime_type || 'application/octet-stream');
+      res.set('Cache-Control', 'private, max-age=3600');
+      return res.send(buf);
+    }
+
+    // Inbound: busca da Evolution
     const { baixarMidia } = require('../services/evolution');
     const result = await baixarMidia(instance_ref, media_key);
 
@@ -165,10 +175,12 @@ router.get('/messages/:id/media', async (req, res) => {
     if (!base64) return res.status(404).json({ erro: 'Evolution não retornou mídia.' });
 
     const buf = Buffer.from(base64, 'base64');
-    res.set('Content-Type', media_mime_type || 'application/octet-stream');
+    const mime = result?.mimetype || media_mime_type || 'application/octet-stream';
+    res.set('Content-Type', mime);
     res.set('Cache-Control', 'private, max-age=3600');
     return res.send(buf);
   } catch (err) {
+    console.error('[WA] media proxy error:', err.message);
     return res.status(500).json({ erro: err.message });
   }
 });
@@ -192,16 +204,15 @@ router.post('/conversations/:id/send-media', async (req, res) => {
     const result = await enviarMidia(instance_ref, phone_e164.replace('+', ''), { mediatype, mimetype, media, fileName, caption });
 
     const { v4: uuidv4 } = require('uuid');
-    const outKey = result?.key
-      ? { key: result.key, message: result.message || {} }
-      : null;
+    // Para outbound, salva base64 inline — evita round-trip ao Evolution
+    const inlineKey = JSON.stringify({ type: 'inline', base64: media, mimetype });
     await db.query(
       `INSERT INTO wa_messages
          (id, conversation_id, instance_ref, provider_message_id, direction,
           message_type, body, media_mime_type, media_key, received_at, status)
        VALUES ($1, $2, $3, $4, 'outbound', $5, $6, $7, $8, NOW(), 'sent')`,
       [uuidv4(), req.params.id, instance_ref, result?.key?.id || null,
-       mediatype, caption || null, mimetype, outKey ? JSON.stringify(outKey) : null]
+       mediatype, caption || null, mimetype, inlineKey]
     );
 
     await db.query(
