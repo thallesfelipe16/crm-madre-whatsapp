@@ -159,25 +159,47 @@ router.get('/messages/:id/media', async (req, res) => {
 
     const { instance_ref, media_mime_type, media_key } = rows[0];
 
+    let buf, mime;
+
     // Inline (outbound salvo com base64 direto)
     if (media_key.type === 'inline') {
-      const buf = Buffer.from(media_key.base64, 'base64');
-      res.set('Content-Type', media_key.mimetype || media_mime_type || 'application/octet-stream');
-      res.set('Cache-Control', 'private, max-age=3600');
-      return res.send(buf);
+      buf = Buffer.from(media_key.base64, 'base64');
+      mime = media_key.mimetype || media_mime_type || 'application/octet-stream';
+    } else {
+      // Inbound: busca da Evolution
+      const { baixarMidia } = require('../services/evolution');
+      const result = await baixarMidia(instance_ref, media_key);
+      const base64 = result?.base64 || result?.data;
+      if (!base64) return res.status(404).json({ erro: 'Evolution não retornou mídia.' });
+      buf = Buffer.from(base64, 'base64');
+      mime = result?.mimetype || media_mime_type || 'application/octet-stream';
     }
 
-    // Inbound: busca da Evolution
-    const { baixarMidia } = require('../services/evolution');
-    const result = await baixarMidia(instance_ref, media_key);
+    // Suporte a Range requests (necessário para áudio com duração correta no browser)
+    const total = buf.length;
+    const rangeHeader = req.headers.range;
+    if (rangeHeader) {
+      const [startStr, endStr] = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(startStr, 10);
+      const end = endStr ? parseInt(endStr, 10) : total - 1;
+      const chunkSize = end - start + 1;
+      res.status(206);
+      res.set({
+        'Content-Range': `bytes ${start}-${end}/${total}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': mime,
+        'Cache-Control': 'private, max-age=3600',
+      });
+      return res.send(buf.slice(start, end + 1));
+    }
 
-    const base64 = result?.base64 || result?.data;
-    if (!base64) return res.status(404).json({ erro: 'Evolution não retornou mídia.' });
-
-    const buf = Buffer.from(base64, 'base64');
-    const mime = result?.mimetype || media_mime_type || 'application/octet-stream';
-    res.set('Content-Type', mime);
-    res.set('Cache-Control', 'private, max-age=3600');
+    res.set({
+      'Content-Type': mime,
+      'Content-Length': total,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, max-age=3600',
+    });
     return res.send(buf);
   } catch (err) {
     console.error('[WA] media proxy error:', err.message);
@@ -200,12 +222,14 @@ router.post('/conversations/:id/send-media', async (req, res) => {
     if (!rows.length) return res.status(404).json({ erro: 'Conversa não encontrada.' });
 
     const { instance_ref, phone_e164 } = rows[0];
-    const { enviarMidia } = require('../services/evolution');
-    const result = await enviarMidia(instance_ref, phone_e164.replace('+', ''), { mediatype, mimetype, media, fileName, caption });
+    const { enviarMidia, enviarAudio } = require('../services/evolution');
+    const pureBase64 = media.includes(',') ? media.split(',')[1] : media;
+    // Áudio: usa sendWhatsAppAudio (PTT) para chegar como mensagem de voz no WhatsApp
+    const result = mediatype === 'audio'
+      ? await enviarAudio(instance_ref, phone_e164.replace('+', ''), pureBase64)
+      : await enviarMidia(instance_ref, phone_e164.replace('+', ''), { mediatype, mimetype, media, fileName, caption });
 
     const { v4: uuidv4 } = require('uuid');
-    // Strip data URL prefix se vier do frontend (data:image/jpeg;base64,...)
-    const pureBase64 = media.includes(',') ? media.split(',')[1] : media;
     // Para outbound, salva base64 inline — evita round-trip ao Evolution
     const inlineKey = JSON.stringify({ type: 'inline', base64: pureBase64, mimetype });
     await db.query(

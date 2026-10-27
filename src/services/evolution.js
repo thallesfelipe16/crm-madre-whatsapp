@@ -88,6 +88,30 @@ async function enviarMidia(instanceName, to, { mediatype, mimetype, media, fileN
   return res.json();
 }
 
+// Envia áudio como mensagem de voz (PTT) — Evolution converte para opus automaticamente
+async function enviarAudio(instanceName, to, base64Audio) {
+  const res = await fetch(`${EVOLUTION_URL}/message/sendWhatsAppAudio/${instanceName}`, {
+    method: 'POST',
+    headers: _headers(),
+    body: JSON.stringify({ number: to, audio: base64Audio, encoding: true }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    // Fallback: tenta sendMedia se sendWhatsAppAudio não existir nessa versão
+    if (res.status === 404 || res.status === 405) {
+      const res2 = await fetch(`${EVOLUTION_URL}/message/sendMedia/${instanceName}`, {
+        method: 'POST',
+        headers: _headers(),
+        body: JSON.stringify({ number: to, mediatype: 'audio', mimetype: 'audio/ogg; codecs=opus', media: base64Audio, fileName: 'audio.ogg', caption: '' }),
+      });
+      if (!res2.ok) throw new Error(`Evolution enviarAudio (fallback) falhou (${res2.status}): ${await res2.text()}`);
+      return res2.json();
+    }
+    throw new Error(`Evolution enviarAudio falhou (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
 async function baixarMidia(instanceName, messageKey) {
   // messageKey pode ser { key, message } (inbound salvo pelo webhook)
   // ou { id, fromMe, remoteJid } (outbound legado)
@@ -127,4 +151,4 @@ async function atualizarWebhook(instanceName, webhookUrl, webhookSecret) {
   return res.json();
 }
 
-module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, baixarMidia, atualizarWebhook };
+module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook };
