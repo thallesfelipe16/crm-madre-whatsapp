@@ -24,6 +24,7 @@ app.use(cors({
     callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
   },
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CRM-Token'],
 }));
 
 app.get('/health/live', (req, res) => res.json({ status: 'ok', modulo: 'crm-madre-whatsapp', versao: '0.1.0' }));
