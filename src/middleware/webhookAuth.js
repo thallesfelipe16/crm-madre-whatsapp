@@ -10,10 +10,14 @@ function webhookAuth(req, res, next) {
     return res.status(404).json({ erro: 'Instância não encontrada.' });
   }
 
-  const apiKey = req.headers['apikey'];
-  if (!apiKey || apiKey !== instance.webhookSecret) {
-    console.warn(`[WA] Webhook recusado para instância ${instanceRef} — apikey inválida`);
-    return res.status(401).json({ erro: 'Não autorizado.' });
+  // Valida secret apenas se estiver configurado na env var
+  const secret = instance.webhookSecret;
+  if (secret) {
+    const apiKey = req.headers['apikey'];
+    if (!apiKey || apiKey !== secret) {
+      console.warn(`[WA] Webhook recusado para instância ${instanceRef} — apikey inválida`);
+      return res.status(401).json({ erro: 'Não autorizado.' });
+    }
   }
 
   req.instanceRef = instanceRef;
