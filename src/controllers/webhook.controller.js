@@ -91,7 +91,8 @@ async function _processarMensagem(instanceRef, evento) {
       || null;
 
     const { messageType, mediaMime } = _detectarTipo(msg.message);
-    const mediaKey = mediaMime ? { id: providerMessageId, fromMe: msg.key.fromMe, remoteJid } : null;
+    // Salva o objeto completo que Evolution precisa para buscar a mídia
+    const mediaKey = mediaMime ? { key: msg.key, message: msg.message } : null;
 
     const providerTimestamp = msg.messageTimestamp
       ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()

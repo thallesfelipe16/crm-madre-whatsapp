@@ -89,10 +89,15 @@ async function enviarMidia(instanceName, to, { mediatype, mimetype, media, fileN
 }
 
 async function baixarMidia(instanceName, messageKey) {
+  // messageKey pode ser { key, message } (inbound salvo pelo webhook)
+  // ou { id, fromMe, remoteJid } (outbound legado)
+  const body = messageKey.key
+    ? { message: messageKey }          // formato completo
+    : { message: { key: messageKey } } // formato legado
   const res = await fetch(`${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${instanceName}`, {
     method: 'POST',
     headers: _headers(),
-    body: JSON.stringify({ message: { key: messageKey } }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.text();

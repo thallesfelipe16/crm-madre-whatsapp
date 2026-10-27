@@ -192,13 +192,16 @@ router.post('/conversations/:id/send-media', async (req, res) => {
     const result = await enviarMidia(instance_ref, phone_e164.replace('+', ''), { mediatype, mimetype, media, fileName, caption });
 
     const { v4: uuidv4 } = require('uuid');
+    const outKey = result?.key
+      ? { key: result.key, message: result.message || {} }
+      : null;
     await db.query(
       `INSERT INTO wa_messages
          (id, conversation_id, instance_ref, provider_message_id, direction,
-          message_type, body, media_mime_type, received_at, status)
-       VALUES ($1, $2, $3, $4, 'outbound', $5, $6, $7, NOW(), 'sent')`,
+          message_type, body, media_mime_type, media_key, received_at, status)
+       VALUES ($1, $2, $3, $4, 'outbound', $5, $6, $7, $8, NOW(), 'sent')`,
       [uuidv4(), req.params.id, instance_ref, result?.key?.id || null,
-       mediatype, caption || null, mimetype]
+       mediatype, caption || null, mimetype, outKey ? JSON.stringify(outKey) : null]
     );
 
     await db.query(
