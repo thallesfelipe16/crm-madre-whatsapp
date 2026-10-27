@@ -59,20 +59,26 @@ router.get('/instances/:ref/qr', async (req, res) => {
 // GET /admin/conversations — lista conversas (filtros: instance_ref, state, page)
 router.get('/conversations', async (req, res) => {
   try {
-    const { instance_ref, state, page = 1 } = req.query;
+    const { instance_ref, state, assigned_to, user_ref, page = 1 } = req.query;
     const limit = 30;
     const offset = (Number(page) - 1) * limit;
 
     const conditions = [];
     const params = [];
     if (instance_ref) { params.push(instance_ref); conditions.push(`c.instance_ref = $${params.length}`); }
-    if (state)         { params.push(state);         conditions.push(`c.state = $${params.length}`); }
+    if (state)        { params.push(state);         conditions.push(`c.state = $${params.length}`); }
+    if (assigned_to === 'me' && user_ref) {
+      params.push(user_ref); conditions.push(`c.assigned_user_ref = $${params.length}`);
+    } else if (assigned_to === 'unassigned') {
+      conditions.push(`c.assigned_user_ref IS NULL`);
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(limit, offset);
 
     const { rows } = await db.query(
       `SELECT c.id, c.instance_ref, c.state, c.last_message_at, c.unread_count,
+              c.assigned_user_ref, c.assigned_user_name,
               ct.phone_e164, ct.display_name,
               m.body AS last_body, m.direction AS last_direction
        FROM wa_conversations c
@@ -105,6 +111,22 @@ router.get('/conversations/:id/messages', async (req, res) => {
       [req.params.id]
     );
     return res.json({ messages: rows });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// PATCH /admin/conversations/:id/assign — atribui conversa a um atendente
+router.patch('/conversations/:id/assign', async (req, res) => {
+  const { user_ref, user_name } = req.body;
+  try {
+    await db.query(
+      `UPDATE wa_conversations
+       SET assigned_user_ref = $1, assigned_user_name = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [user_ref || null, user_name || null, req.params.id]
+    );
+    return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ erro: err.message });
   }
