@@ -12,7 +12,9 @@ const ALLOWED_EVENTS = new Set([
 async function receberEvento(req, res) {
   const instanceRef = req.instanceRef;
   const evento = req.body;
-  const eventName = evento?.event || evento?.type || 'UNKNOWN';
+  // Normaliza: "messages.upsert" → "MESSAGES_UPSERT"
+  const rawEvent = evento?.event || evento?.type || 'UNKNOWN';
+  const eventName = rawEvent.toUpperCase().replace(/\./g, '_');
 
   // Responde 200 imediatamente — o processamento é assíncrono
   res.status(200).json({ recebido: true });
