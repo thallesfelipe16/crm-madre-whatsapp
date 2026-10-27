@@ -85,8 +85,14 @@ async function _processarMensagem(instanceRef, evento) {
     const providerMessageId = msg.key.id;
     const body = msg.message?.conversation
       || msg.message?.extendedTextMessage?.text
+      || msg.message?.imageMessage?.caption
+      || msg.message?.videoMessage?.caption
+      || msg.message?.documentMessage?.caption
       || null;
-    const messageType = body ? 'text' : 'other';
+
+    const { messageType, mediaMime } = _detectarTipo(msg.message);
+    const mediaKey = mediaMime ? { id: providerMessageId, fromMe: msg.key.fromMe, remoteJid } : null;
+
     const providerTimestamp = msg.messageTimestamp
       ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
       : null;
@@ -123,11 +129,12 @@ async function _processarMensagem(instanceRef, evento) {
     await db.query(
       `INSERT INTO wa_messages
          (id, conversation_id, instance_ref, provider_message_id, direction,
-          message_type, body, provider_timestamp, received_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), 'received')
+          message_type, body, media_mime_type, media_key, provider_timestamp, received_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 'received')
        ON CONFLICT (instance_ref, provider_message_id, direction) DO NOTHING`,
       [uuidv4(), conversationId, instanceRef, providerMessageId,
-       direction, messageType, body, providerTimestamp]
+       direction, messageType, body, mediaMime || null,
+       mediaKey ? JSON.stringify(mediaKey) : null, providerTimestamp]
     );
   }
 }
@@ -140,6 +147,17 @@ async function _processarConexao(instanceRef, evento) {
     [state, instanceRef]
   );
   console.log(`[WA] Conexão ${instanceRef}: ${state}`);
+}
+
+function _detectarTipo(message) {
+  if (!message) return { messageType: 'other', mediaMime: null };
+  if (message.conversation || message.extendedTextMessage) return { messageType: 'text', mediaMime: null };
+  if (message.imageMessage)    return { messageType: 'image',    mediaMime: message.imageMessage.mimetype    || 'image/jpeg' };
+  if (message.audioMessage)    return { messageType: 'audio',    mediaMime: message.audioMessage.mimetype    || 'audio/ogg' };
+  if (message.videoMessage)    return { messageType: 'video',    mediaMime: message.videoMessage.mimetype    || 'video/mp4' };
+  if (message.documentMessage) return { messageType: 'document', mediaMime: message.documentMessage.mimetype || 'application/octet-stream' };
+  if (message.stickerMessage)  return { messageType: 'sticker',  mediaMime: 'image/webp' };
+  return { messageType: 'other', mediaMime: null };
 }
 
 function _gerarEventKey(instanceRef, eventName, evento) {

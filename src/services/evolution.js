@@ -75,4 +75,30 @@ async function enviarTexto(instanceName, to, text) {
   return res.json();
 }
 
-module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto };
+async function enviarMidia(instanceName, to, { mediatype, mimetype, media, fileName, caption }) {
+  const res = await fetch(`${EVOLUTION_URL}/message/sendMedia/${instanceName}`, {
+    method: 'POST',
+    headers: _headers(),
+    body: JSON.stringify({ number: to, mediatype, mimetype, media, fileName, caption: caption || '' }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Evolution enviarMidia falhou (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
+async function baixarMidia(instanceName, messageKey) {
+  const res = await fetch(`${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${instanceName}`, {
+    method: 'POST',
+    headers: _headers(),
+    body: JSON.stringify({ message: { key: messageKey } }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Evolution baixarMidia falhou (${res.status}): ${err}`);
+  }
+  return res.json(); // { base64, mimetype }
+}
+
+module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, baixarMidia };

@@ -148,6 +148,70 @@ router.patch('/conversations/:id/state', async (req, res) => {
   }
 });
 
+// GET /admin/messages/:id/media — proxy de mídia (busca base64 da Evolution)
+router.get('/messages/:id/media', async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT instance_ref, media_mime_type, media_key FROM wa_messages WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length || !rows[0].media_key) return res.status(404).json({ erro: 'Mídia não encontrada.' });
+
+    const { instance_ref, media_mime_type, media_key } = rows[0];
+    const { baixarMidia } = require('../services/evolution');
+    const result = await baixarMidia(instance_ref, media_key);
+
+    const base64 = result?.base64 || result?.data;
+    if (!base64) return res.status(404).json({ erro: 'Evolution não retornou mídia.' });
+
+    const buf = Buffer.from(base64, 'base64');
+    res.set('Content-Type', media_mime_type || 'application/octet-stream');
+    res.set('Cache-Control', 'private, max-age=3600');
+    return res.send(buf);
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// POST /admin/conversations/:id/send-media — envia mídia
+router.post('/conversations/:id/send-media', async (req, res) => {
+  const { mediatype, mimetype, media, fileName, caption } = req.body;
+  if (!media || !mediatype) return res.status(400).json({ erro: 'media e mediatype obrigatórios.' });
+
+  try {
+    const { rows } = await db.query(
+      `SELECT c.instance_ref, ct.phone_e164
+       FROM wa_conversations c JOIN wa_contacts ct ON ct.id = c.contact_id
+       WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ erro: 'Conversa não encontrada.' });
+
+    const { instance_ref, phone_e164 } = rows[0];
+    const { enviarMidia } = require('../services/evolution');
+    const result = await enviarMidia(instance_ref, phone_e164.replace('+', ''), { mediatype, mimetype, media, fileName, caption });
+
+    const { v4: uuidv4 } = require('uuid');
+    await db.query(
+      `INSERT INTO wa_messages
+         (id, conversation_id, instance_ref, provider_message_id, direction,
+          message_type, body, media_mime_type, received_at, status)
+       VALUES ($1, $2, $3, $4, 'outbound', $5, $6, $7, NOW(), 'sent')`,
+      [uuidv4(), req.params.id, instance_ref, result?.key?.id || null,
+       mediatype, caption || null, mimetype]
+    );
+
+    await db.query(
+      `UPDATE wa_conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // POST /admin/conversations/:id/send — envia mensagem
 router.post('/conversations/:id/send', async (req, res) => {
   const { text } = req.body;
