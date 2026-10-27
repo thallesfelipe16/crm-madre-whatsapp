@@ -105,13 +105,22 @@ router.get('/conversations', async (req, res) => {
 router.get('/conversations/:id/messages', async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, direction, message_type, body, media_mime_type, provider_timestamp, received_at, status
+      `SELECT id, direction, message_type, body, media_mime_type, media_key,
+              provider_timestamp, received_at, status
        FROM wa_messages
        WHERE conversation_id = $1
        ORDER BY received_at ASC, id ASC`,
       [req.params.id]
     );
-    return res.json({ messages: rows });
+    // Para mensagens com base64 inline, inclui data URL direto (evita round-trip e resolve 0:00/0:00)
+    const messages = rows.map(row => {
+      const { media_key, ...rest } = row;
+      if (media_key?.type === 'inline' && media_key.base64 && media_key.mimetype) {
+        return { ...rest, media_data_url: `data:${media_key.mimetype};base64,${media_key.base64}` };
+      }
+      return rest;
+    });
+    return res.json({ messages });
   } catch (err) {
     return res.status(500).json({ erro: err.message });
   }
