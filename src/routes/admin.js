@@ -398,6 +398,17 @@ router.post('/conversations/:id/criar-lead', async (req, res) => {
   }
 });
 
+// DELETE /admin/conversations/:id — exclui conversa e mensagens (super_admin only)
+router.delete('/conversations/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM wa_messages     WHERE conversation_id = $1', [req.params.id]);
+    await db.query('DELETE FROM wa_conversations WHERE id = $1',             [req.params.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // POST /admin/conversations/:id/send — envia mensagem
 router.post('/conversations/:id/send', async (req, res) => {
   const { text } = req.body;
