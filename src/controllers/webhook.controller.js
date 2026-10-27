@@ -92,20 +92,28 @@ async function _processarMensagem(instanceRef, evento) {
 
     const { messageType, mediaMime } = _detectarTipo(msg.message);
 
-    // Para inbound com mídia: busca base64 agora e salva inline
-    // (evita round-trip posterior — mídia expira nos servidores do WhatsApp)
+    // Tenta extrair base64 do próprio payload (quando webhook_base64=true na Evolution)
+    // Fallback: chama getBase64FromMediaMessage
     let mediaKey = mediaMime ? { key: msg.key, message: msg.message } : null;
     if (mediaMime && direction === 'inbound') {
-      try {
-        const { baixarMidia } = require('../services/evolution');
-        const dl = await baixarMidia(instanceRef, { key: msg.key, message: msg.message });
-        const b64 = dl?.base64 || dl?.data;
-        if (b64) {
-          mediaKey = { type: 'inline', base64: b64, mimetype: dl?.mimetype || mediaMime };
+      const embeddedB64 = _extrairBase64Embutido(msg.message);
+      if (embeddedB64) {
+        mediaKey = { type: 'inline', base64: embeddedB64, mimetype: mediaMime };
+        console.log(`[WA] base64 embutido extraído do webhook (${instanceRef})`);
+      } else {
+        try {
+          const { baixarMidia } = require('../services/evolution');
+          const dl = await baixarMidia(instanceRef, { key: msg.key, message: msg.message });
+          const b64 = dl?.base64 || dl?.data;
+          if (b64) {
+            mediaKey = { type: 'inline', base64: b64, mimetype: dl?.mimetype || mediaMime };
+            console.log(`[WA] base64 baixado via Evolution (${instanceRef})`);
+          } else {
+            console.warn(`[WA] Evolution retornou vazio para mídia (${instanceRef}):`, JSON.stringify(dl));
+          }
+        } catch (dlErr) {
+          console.warn(`[WA] baixarMidia falhou (${instanceRef}):`, dlErr.message);
         }
-      } catch (dlErr) {
-        console.warn(`[WA] baixarMidia inline falhou (${instanceRef}):`, dlErr.message);
-        // mantém mediaKey com referência Evolution como fallback
       }
     }
 
@@ -163,6 +171,19 @@ async function _processarConexao(instanceRef, evento) {
     [state, instanceRef]
   );
   console.log(`[WA] Conexão ${instanceRef}: ${state}`);
+}
+
+function _extrairBase64Embutido(message) {
+  if (!message) return null;
+  // Evolution com webhook_base64=true embute o base64 em vários lugares possíveis
+  const img = message.imageMessage;
+  const aud = message.audioMessage;
+  const vid = message.videoMessage;
+  const doc = message.documentMessage;
+  const src = img || aud || vid || doc;
+  if (!src) return null;
+  // Alguns builds da Evolution colocam em .base64, outros em .data
+  return src.base64 || src.data || null;
 }
 
 function _detectarTipo(message) {

@@ -24,7 +24,7 @@ async function criarInstancia(instanceName, webhookUrl, webhookSecret) {
         url: webhookUrl,
         events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
         webhook_by_events: false,
-        webhook_base64: false,
+        webhook_base64: true,
         headers: { apikey: webhookSecret },
       },
     }),
@@ -106,4 +106,25 @@ async function baixarMidia(instanceName, messageKey) {
   return res.json(); // { base64, mimetype }
 }
 
-module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, baixarMidia };
+async function atualizarWebhook(instanceName, webhookUrl, webhookSecret) {
+  const res = await fetch(`${EVOLUTION_URL}/webhook/set/${instanceName}`, {
+    method: 'POST',
+    headers: _headers(),
+    body: JSON.stringify({
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'CONNECTION_UPDATE'],
+        webhook_by_events: false,
+        webhook_base64: true,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Evolution atualizarWebhook falhou (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
+module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, baixarMidia, atualizarWebhook };

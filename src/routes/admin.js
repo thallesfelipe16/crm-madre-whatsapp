@@ -226,6 +226,22 @@ router.post('/conversations/:id/send-media', async (req, res) => {
   }
 });
 
+// POST /admin/instances/:ref/webhook-reset — re-configura webhook com webhook_base64=true
+router.post('/instances/:ref/webhook-reset', async (req, res) => {
+  const { ref } = req.params;
+  const { getInstance } = require('../config/instances');
+  const cfg = getInstance(ref);
+  if (!cfg) return res.status(404).json({ erro: 'Instância não configurada.' });
+  const webhookUrl = `${process.env.APP_URL}/webhooks/${ref}`;
+  try {
+    const { atualizarWebhook } = require('../services/evolution');
+    const result = await atualizarWebhook(ref, webhookUrl, cfg.webhookSecret);
+    return res.json({ ok: true, result });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // POST /admin/conversations/:id/send — envia mensagem
 router.post('/conversations/:id/send', async (req, res) => {
   const { text } = req.body;
