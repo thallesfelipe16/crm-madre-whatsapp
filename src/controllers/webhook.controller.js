@@ -91,8 +91,23 @@ async function _processarMensagem(instanceRef, evento) {
       || null;
 
     const { messageType, mediaMime } = _detectarTipo(msg.message);
-    // Salva o objeto completo que Evolution precisa para buscar a mídia
-    const mediaKey = mediaMime ? { key: msg.key, message: msg.message } : null;
+
+    // Para inbound com mídia: busca base64 agora e salva inline
+    // (evita round-trip posterior — mídia expira nos servidores do WhatsApp)
+    let mediaKey = mediaMime ? { key: msg.key, message: msg.message } : null;
+    if (mediaMime && direction === 'inbound') {
+      try {
+        const { baixarMidia } = require('../services/evolution');
+        const dl = await baixarMidia(instanceRef, { key: msg.key, message: msg.message });
+        const b64 = dl?.base64 || dl?.data;
+        if (b64) {
+          mediaKey = { type: 'inline', base64: b64, mimetype: dl?.mimetype || mediaMime };
+        }
+      } catch (dlErr) {
+        console.warn(`[WA] baixarMidia inline falhou (${instanceRef}):`, dlErr.message);
+        // mantém mediaKey com referência Evolution como fallback
+      }
+    }
 
     const providerTimestamp = msg.messageTimestamp
       ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
