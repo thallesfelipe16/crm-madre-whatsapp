@@ -12,20 +12,7 @@ const app = express();
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(express.json({ limit: '20mb' }));
 
-// CORS — origens permitidas via env var
-const origensPermitidas = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
-  : ['http://localhost:5173'];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (origensPermitidas.includes(origin)) return callback(null, true);
-    callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
-  },
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CRM-Token'],
-}));
+app.use(cors({ origin: true, credentials: true }));
 
 app.get('/health/live', (req, res) => res.json({ status: 'ok', modulo: 'crm-madre-whatsapp', versao: '0.1.0' }));
 
