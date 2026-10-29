@@ -158,6 +158,19 @@ router.patch('/conversations/:id/state', async (req, res) => {
   }
 });
 
+// PATCH /admin/conversations/:id/read — zera contador de não lidas
+router.patch('/conversations/:id/read', async (req, res) => {
+  try {
+    await db.query(
+      `UPDATE wa_conversations SET unread_count = 0, updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // GET /admin/messages/:id/media — proxy de mídia
 router.get('/messages/:id/media', async (req, res) => {
   try {
