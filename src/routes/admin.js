@@ -310,7 +310,25 @@ router.post('/conversations/iniciar', async (req, res) => {
     const draftText = `Olá, ${primeiroNome}! 😊 Aqui é o Colégio Madre de Deus. Vi que você demonstrou interesse em uma vaga${nomeAluno ? ` para ${nomeAluno}` : ''}${serie ? ` (${serie})` : ''}${campus ? ` no ${campus}` : ''}. Posso te ajudar com mais informações? 🎓`
 
     if (rows.length) {
-      return res.json({ conversation_id: rows[0].id, criada: false, draft: draftText });
+      const convId = rows[0].id
+      // Cria nota interna também para conversa existente (contexto do lead para a secretaria)
+      if (lead && (nomeResp || nomeAluno)) {
+        const { v4: uuidv4 } = require('uuid')
+        const linhas = ['📋 *Dados do Lead*']
+        if (nomeResp)       linhas.push(`👤 Responsável: ${nomeResp}`)
+        if (nomeAluno)      linhas.push(`🎒 Estudante: ${nomeAluno}`)
+        if (serie)          linhas.push(`📚 Série: ${serie}`)
+        if (campus)         linhas.push(`🏫 Campus: ${campus}`)
+        if (lead.processo)  linhas.push(`📅 Processo: ${lead.processo}`)
+        await db.query(
+          `INSERT INTO wa_messages
+             (id, conversation_id, instance_ref, provider_message_id, direction,
+              message_type, body, received_at, status)
+           VALUES ($1, $2, $3, NULL, 'internal', 'note', $4, NOW(), 'delivered')`,
+          [uuidv4(), convId, ref, linhas.join('\n')]
+        )
+      }
+      return res.json({ conversation_id: convId, criada: false, draft: draftText });
     }
 
     // Não existe — cria contato + conversa (sem enviar mensagem ainda)
