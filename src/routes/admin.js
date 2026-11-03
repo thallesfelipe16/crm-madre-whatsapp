@@ -278,7 +278,8 @@ router.post('/conversations/:id/send-media', async (req, res) => {
 // POST /admin/conversations/iniciar — encontra ou cria conversa para um número
 // Usado pelo CRM para abrir lead diretamente no Inbox
 router.post('/conversations/iniciar', async (req, res) => {
-  const { phone, instance_ref } = req.body;
+  const { phone, instance_ref, lead } = req.body;
+  // lead: { nome_responsavel, nome_aluno, serie, campus, processo }
   if (!phone) return res.status(400).json({ erro: 'phone obrigatório.' });
 
   // Normaliza para E.164
@@ -300,8 +301,16 @@ router.post('/conversations/iniciar', async (req, res) => {
       [phoneE164, ref]
     );
 
+    // Monta texto de boas-vindas independente de ser nova ou existente
+    const nomeResp  = lead?.nome_responsavel || ''
+    const nomeAluno = lead?.nome_aluno || ''
+    const serie     = lead?.serie || ''
+    const campus    = lead?.campus || ''
+    const primeiroNome = nomeResp.split(' ')[0] || 'responsável'
+    const draftText = `Olá, ${primeiroNome}! 😊 Aqui é o Colégio Madre de Deus. Vi que você demonstrou interesse em uma vaga${nomeAluno ? ` para ${nomeAluno}` : ''}${serie ? ` (${serie})` : ''}${campus ? ` no ${campus}` : ''}. Posso te ajudar com mais informações? 🎓`
+
     if (rows.length) {
-      return res.json({ conversation_id: rows[0].id, criada: false });
+      return res.json({ conversation_id: rows[0].id, criada: false, draft: draftText });
     }
 
     // Não existe — cria contato + conversa (sem enviar mensagem ainda)
@@ -322,8 +331,26 @@ router.post('/conversations/iniciar', async (req, res) => {
        RETURNING id`,
       [uuidv4(), ref, contactId]
     );
+    const convId = convRows[0].id
 
-    return res.json({ conversation_id: convRows[0].id, criada: true });
+    // Nota interna com dados do lead (não enviada ao cliente)
+    if (lead && (nomeResp || nomeAluno)) {
+      const linhas = ['📋 *Dados do Lead*']
+      if (nomeResp)  linhas.push(`👤 Responsável: ${nomeResp}`)
+      if (nomeAluno) linhas.push(`🎒 Estudante: ${nomeAluno}`)
+      if (serie)     linhas.push(`📚 Série: ${serie}`)
+      if (campus)    linhas.push(`🏫 Campus: ${campus}`)
+      if (lead.processo) linhas.push(`📅 Processo: ${lead.processo}`)
+      await db.query(
+        `INSERT INTO wa_messages
+           (id, conversation_id, instance_ref, provider_message_id, direction,
+            message_type, body, received_at, status)
+         VALUES ($1, $2, $3, NULL, 'internal', 'note', $4, NOW(), 'delivered')`,
+        [uuidv4(), convId, ref, linhas.join('\n')]
+      )
+    }
+
+    return res.json({ conversation_id: convId, criada: true, draft: draftText });
   } catch (err) {
     return res.status(500).json({ erro: err.message });
   }
