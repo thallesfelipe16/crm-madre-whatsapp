@@ -314,7 +314,7 @@ router.post('/conversations/iniciar', async (req, res) => {
       // Cria nota interna também para conversa existente (contexto do lead para a secretaria)
       if (lead && (nomeResp || nomeAluno)) {
         const { v4: uuidv4 } = require('uuid')
-        const linhas = ['📋 *Dados do Lead*']
+        const linhas = ['📋 Dados do Lead']
         if (nomeResp)       linhas.push(`👤 Responsável: ${nomeResp}`)
         if (nomeAluno)      linhas.push(`🎒 Estudante: ${nomeAluno}`)
         if (serie)          linhas.push(`📚 Série: ${serie}`)
@@ -353,12 +353,12 @@ router.post('/conversations/iniciar', async (req, res) => {
 
     // Nota interna com dados do lead (não enviada ao cliente)
     if (lead && (nomeResp || nomeAluno)) {
-      const linhas = ['📋 *Dados do Lead*']
-      if (nomeResp)  linhas.push(`👤 Responsável: ${nomeResp}`)
-      if (nomeAluno) linhas.push(`🎒 Estudante: ${nomeAluno}`)
-      if (serie)     linhas.push(`📚 Série: ${serie}`)
-      if (campus)    linhas.push(`🏫 Campus: ${campus}`)
-      if (lead.processo) linhas.push(`📅 Processo: ${lead.processo}`)
+      const linhas = ['📋 Dados do Lead']
+      if (nomeResp)       linhas.push(`👤 Responsável: ${nomeResp}`)
+      if (nomeAluno)      linhas.push(`🎒 Estudante: ${nomeAluno}`)
+      if (serie)          linhas.push(`📚 Série: ${serie}`)
+      if (campus)         linhas.push(`🏫 Campus: ${campus}`)
+      if (lead.processo)  linhas.push(`📅 Processo: ${lead.processo}`)
       await db.query(
         `INSERT INTO wa_messages
            (id, conversation_id, instance_ref, provider_message_id, direction,
