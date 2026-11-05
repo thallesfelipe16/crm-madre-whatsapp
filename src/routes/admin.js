@@ -59,13 +59,23 @@ router.get('/instances/:ref/qr', async (req, res) => {
 // GET /admin/conversations — lista conversas (filtros: instance_ref, state, page)
 router.get('/conversations', async (req, res) => {
   try {
-    const { instance_ref, state, assigned_to, user_ref, page = 1 } = req.query;
+    const { instance_ref, instance_refs, state, assigned_to, user_ref, page = 1 } = req.query;
     const limit = 30;
     const offset = (Number(page) - 1) * limit;
 
     const conditions = [];
     const params = [];
-    if (instance_ref) { params.push(instance_ref); conditions.push(`c.instance_ref = $${params.length}`); }
+    if (instance_refs) {
+      // Suporte a múltiplas instâncias (comma-separated): usado pelo Inbox para filtrar por campus
+      const refs = instance_refs.split(',').map(r => r.trim()).filter(Boolean);
+      if (refs.length === 1) {
+        params.push(refs[0]); conditions.push(`c.instance_ref = $${params.length}`);
+      } else if (refs.length > 1) {
+        params.push(refs); conditions.push(`c.instance_ref = ANY($${params.length})`);
+      }
+    } else if (instance_ref) {
+      params.push(instance_ref); conditions.push(`c.instance_ref = $${params.length}`);
+    }
     if (state)        { params.push(state);         conditions.push(`c.state = $${params.length}`); }
     if (assigned_to === 'me' && user_ref) {
       params.push(user_ref); conditions.push(`c.assigned_user_ref = $${params.length}`);
