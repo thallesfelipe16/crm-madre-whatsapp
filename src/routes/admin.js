@@ -297,10 +297,23 @@ router.post('/conversations/iniciar', async (req, res) => {
   const phoneE164 = digits.startsWith('+') ? digits : `+${digits}`;
 
   try {
-    // Instância padrão: primeira disponível ou a passada
+    // Instância: usa a do campus do lead ou a primeira configurada
     const { listInstances } = require('../config/instances');
     const ref = instance_ref || listInstances()[0]?.ref;
     if (!ref) return res.status(503).json({ erro: 'Nenhuma instância configurada.' });
+
+    // Bloqueia se a instância do campus não está conectada
+    const { rows: accRows } = await db.query(
+      `SELECT connection_state FROM wa_accounts WHERE instance_ref = $1`,
+      [ref]
+    );
+    const connState = accRows[0]?.connection_state;
+    if (!accRows.length || connState !== 'open') {
+      return res.status(503).json({
+        erro: `O WhatsApp deste campus (${ref}) está desconectado. Peça ao administrador para reconectar o QR Code.`,
+        desconectado: true,
+      });
+    }
 
     // Verifica se já existe conversa ativa
     const { rows } = await db.query(
