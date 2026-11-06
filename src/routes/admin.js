@@ -577,10 +577,10 @@ router.get('/stats/response-time', async (req, res) => {
       const refs = instance_refs.split(',').map(r => r.trim()).filter(Boolean);
       if (refs.length === 1) {
         instanceParams.push(refs[0]);
-        instanceCond = `AND c.instance_ref = $${instanceParams.length}`;
+        instanceCond = `AND c.instance_ref = $2`;  // $1 = daysNum, $2 = ref
       } else if (refs.length > 1) {
         instanceParams.push(refs);
-        instanceCond = `AND c.instance_ref = ANY($${instanceParams.length})`;
+        instanceCond = `AND c.instance_ref = ANY($2::text[])`;
       }
     }
 
