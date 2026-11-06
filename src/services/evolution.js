@@ -151,4 +151,18 @@ async function atualizarWebhook(instanceName, webhookUrl, webhookSecret) {
   return res.json();
 }
 
-module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook };
+async function fetchProfilePic(instanceName, phone) {
+  try {
+    const res = await fetch(
+      `${EVOLUTION_URL}/chat/fetchProfilePictureUrl/${instanceName}?number=${encodeURIComponent(phone)}`,
+      { headers: _headers() }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.profilePictureUrl || data?.wid?.profilePictureUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook, fetchProfilePic };

@@ -56,6 +56,23 @@ router.get('/instances/:ref/qr', async (req, res) => {
   }
 });
 
+// POST /admin/contacts/profile-pics — busca fotos de perfil em lote na Evolution API
+// Body: [{ instance_ref, phone }]  → retorna { "phone": "url | null" }
+router.post('/contacts/profile-pics', async (req, res) => {
+  const { fetchProfilePic } = require('../services/evolution');
+  const contacts = Array.isArray(req.body) ? req.body : [];
+  if (!contacts.length) return res.json({});
+  // Limita a 50 por chamada para não travar
+  const batch = contacts.slice(0, 50);
+  const results = await Promise.all(
+    batch.map(async ({ instance_ref, phone }) => {
+      const url = await fetchProfilePic(instance_ref, phone).catch(() => null);
+      return [phone, url];
+    })
+  );
+  return res.json(Object.fromEntries(results));
+});
+
 // GET /admin/conversations — lista conversas (filtros: instance_ref, state, page)
 router.get('/conversations', async (req, res) => {
   try {
