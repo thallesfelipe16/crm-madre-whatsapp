@@ -64,4 +64,4 @@ async function criarLead(payload) {
   return res.json();
 }
 
-module.exports = { criarLead };
+module.exports = { criarLead, getToken };

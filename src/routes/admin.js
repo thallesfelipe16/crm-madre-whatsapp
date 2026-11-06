@@ -91,7 +91,12 @@ router.get('/conversations', async (req, res) => {
               c.assigned_user_ref, c.assigned_user_name,
               c.status_funil, c.lead_crm_id, c.lead_nome,
               ct.phone_e164, ct.display_name,
-              m.body AS last_body, m.direction AS last_direction
+              m.body AS last_body, m.direction AS last_direction,
+              COALESCE(
+                (SELECT json_agg(json_build_object('user_id', mk.user_id, 'user_name', mk.user_name, 'color', mk.color))
+                 FROM wa_markers mk WHERE mk.conversation_id = c.id),
+                '[]'::json
+              ) AS markers
        FROM wa_conversations c
        JOIN wa_contacts ct ON ct.id = c.contact_id
        LEFT JOIN LATERAL (
@@ -423,6 +428,134 @@ router.post('/conversations/iniciar', async (req, res) => {
     return res.json({ conversation_id: convId, criada: true, draft: draftText });
   } catch (err) {
     return res.status(500).json({ erro: err.message });
+  }
+});
+
+// ─── MARCADORES ───────────────────────────────────────────────────────────────
+
+// Garante que as tabelas de marcadores e notificações existem
+async function ensureMarkerTables() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS wa_markers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      conversation_id UUID NOT NULL REFERENCES wa_conversations(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      color TEXT NOT NULL,
+      created_by_id TEXT NOT NULL,
+      created_by_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(conversation_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS wa_notifications (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id TEXT NOT NULL,
+      conversation_id UUID REFERENCES wa_conversations(id) ON DELETE CASCADE,
+      conv_contact_name TEXT,
+      created_by_name TEXT NOT NULL,
+      read BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wa_markers_conv ON wa_markers(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_wa_notif_user ON wa_notifications(user_id, read);
+  `);
+}
+ensureMarkerTables().catch(e => console.error('[WA] ensureMarkerTables:', e.message));
+
+// POST /admin/conversations/:id/markers — adiciona marcador (marca outro atendente)
+router.post('/conversations/:id/markers', async (req, res) => {
+  const { user_id, user_name, color, created_by_id, created_by_name } = req.body;
+  if (!user_id || !color) return res.status(400).json({ erro: 'user_id e color obrigatórios.' });
+  try {
+    await db.query(
+      `INSERT INTO wa_markers (conversation_id, user_id, user_name, color, created_by_id, created_by_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET color = EXCLUDED.color, created_by_id = EXCLUDED.created_by_id, created_by_name = EXCLUDED.created_by_name, created_at = NOW()`,
+      [req.params.id, String(user_id), user_name, color, String(created_by_id), created_by_name]
+    );
+    // Cria notificação para o usuário marcado (não notifica a si mesmo)
+    if (String(user_id) !== String(created_by_id)) {
+      const { rows: ctRows } = await db.query(
+        `SELECT ct.display_name, ct.phone_e164 FROM wa_conversations c JOIN wa_contacts ct ON ct.id = c.contact_id WHERE c.id = $1`,
+        [req.params.id]
+      );
+      const contactName = ctRows[0]?.display_name || ctRows[0]?.phone_e164 || 'contato';
+      await db.query(
+        `INSERT INTO wa_notifications (user_id, conversation_id, conv_contact_name, created_by_name)
+         VALUES ($1, $2, $3, $4)`,
+        [String(user_id), req.params.id, contactName, created_by_name]
+      );
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// DELETE /admin/conversations/:id/markers/:userId — remove marcador
+router.delete('/conversations/:id/markers/:userId', async (req, res) => {
+  try {
+    await db.query(
+      `DELETE FROM wa_markers WHERE conversation_id = $1 AND user_id = $2`,
+      [req.params.id, req.params.userId]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// GET /admin/notifications?user_id= — notificações do usuário
+router.get('/notifications', async (req, res) => {
+  const { user_id } = req.query;
+  if (!user_id) return res.status(400).json({ erro: 'user_id obrigatório.' });
+  try {
+    const { rows } = await db.query(
+      `SELECT id, conversation_id, conv_contact_name, created_by_name, read, created_at
+       FROM wa_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
+      [String(user_id)]
+    );
+    return res.json({ notifications: rows });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// PATCH /admin/notifications/read — marca notificações como lidas
+router.patch('/notifications/read', async (req, res) => {
+  const { user_id, ids } = req.body; // ids: array de UUIDs, ou omitir para marcar todas
+  if (!user_id) return res.status(400).json({ erro: 'user_id obrigatório.' });
+  try {
+    if (ids?.length) {
+      await db.query(`UPDATE wa_notifications SET read = TRUE WHERE user_id = $1 AND id = ANY($2::uuid[])`, [String(user_id), ids]);
+    } else {
+      await db.query(`UPDATE wa_notifications SET read = TRUE WHERE user_id = $1`, [String(user_id)]);
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// GET /admin/users — lista usuários do CRM com cor_marcador (proxy para CRM API)
+router.get('/users', async (req, res) => {
+  try {
+    const { getToken } = require('../services/crm');
+    const token = await getToken();
+    const crmUrl = process.env.CRM_API_URL || 'http://crm-madre_crm-api:3000';
+    const response = await fetch(`${crmUrl}/api/usuarios`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!response.ok) return res.status(response.status).json({ users: [] });
+    const users = await response.json();
+    return res.json({ users: (Array.isArray(users) ? users : []).map(u => ({
+      id: String(u.id),
+      nome: u.nome,
+      perfil: u.perfil,
+      cor_marcador: u.cor_marcador || null,
+    })) });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message, users: [] });
   }
 });
 
