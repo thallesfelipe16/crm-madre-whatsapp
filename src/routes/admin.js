@@ -288,8 +288,10 @@ router.post('/conversations/:id/send-media', async (req, res) => {
 // POST /admin/conversations/iniciar — encontra ou cria conversa para um número
 // Usado pelo CRM para abrir lead diretamente no Inbox
 router.post('/conversations/iniciar', async (req, res) => {
-  const { phone, instance_ref, lead } = req.body;
+  const { phone, instance_ref, lead, assign_to, status_funil } = req.body;
   // lead: { nome_responsavel, nome_aluno, serie, campus, processo }
+  // assign_to: { user_ref, user_name } — atribui conversa automaticamente
+  // status_funil: sincroniza etapa do CRM no Inbox
   if (!phone) return res.status(400).json({ erro: 'phone obrigatório.' });
 
   // Normaliza para E.164
@@ -334,6 +336,27 @@ router.post('/conversations/iniciar', async (req, res) => {
 
     if (rows.length) {
       const convId = rows[0].id
+      // Atualiza nome do contato, atribuição e etapa do funil na conversa existente
+      if (nomeResp) {
+        await db.query(
+          `UPDATE wa_contacts SET display_name = $1, updated_at = NOW()
+           WHERE id = (SELECT contact_id FROM wa_conversations WHERE id = $2)`,
+          [nomeResp, convId]
+        )
+      }
+      const updFields = []
+      const updParams = []
+      if (assign_to?.user_ref) {
+        updParams.push(String(assign_to.user_ref)); updFields.push(`assigned_user_ref = $${updParams.length}`)
+        updParams.push(assign_to.user_name || '');  updFields.push(`assigned_user_name = $${updParams.length}`)
+      }
+      if (status_funil) {
+        updParams.push(status_funil); updFields.push(`status_funil = $${updParams.length}`)
+      }
+      if (updFields.length) {
+        updParams.push(convId)
+        await db.query(`UPDATE wa_conversations SET ${updFields.join(', ')}, updated_at = NOW() WHERE id = $${updParams.length}`, updParams)
+      }
       // Cria nota interna também para conversa existente (contexto do lead para a secretaria)
       if (lead && (nomeResp || nomeAluno)) {
         const { v4: uuidv4 } = require('uuid')
@@ -357,20 +380,26 @@ router.post('/conversations/iniciar', async (req, res) => {
     // Não existe — cria contato + conversa (sem enviar mensagem ainda)
     const { v4: uuidv4 } = require('uuid');
     const { rows: ctRows } = await db.query(
-      `INSERT INTO wa_contacts (id, instance_ref, phone_e164, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (instance_ref, phone_e164) DO UPDATE SET updated_at = NOW()
+      `INSERT INTO wa_contacts (id, instance_ref, phone_e164, display_name, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (instance_ref, phone_e164) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = NOW()
        RETURNING id`,
-      [uuidv4(), ref, phoneE164]
+      [uuidv4(), ref, phoneE164, nomeResp || null]
     );
     const contactId = ctRows[0].id;
 
+    const assignRef  = assign_to?.user_ref  ? String(assign_to.user_ref)  : null
+    const assignName = assign_to?.user_name ? assign_to.user_name         : null
     const { rows: convRows } = await db.query(
-      `INSERT INTO wa_conversations (id, instance_ref, contact_id, state, updated_at)
-       VALUES ($1, $2, $3, 'open', NOW())
-       ON CONFLICT (instance_ref, contact_id) DO UPDATE SET updated_at = NOW()
+      `INSERT INTO wa_conversations (id, instance_ref, contact_id, state, assigned_user_ref, assigned_user_name, status_funil, updated_at)
+       VALUES ($1, $2, $3, 'open', $4, $5, $6, NOW())
+       ON CONFLICT (instance_ref, contact_id) DO UPDATE
+         SET updated_at = NOW(),
+             assigned_user_ref  = COALESCE(EXCLUDED.assigned_user_ref,  wa_conversations.assigned_user_ref),
+             assigned_user_name = COALESCE(EXCLUDED.assigned_user_name, wa_conversations.assigned_user_name),
+             status_funil       = COALESCE(EXCLUDED.status_funil,       wa_conversations.status_funil)
        RETURNING id`,
-      [uuidv4(), ref, contactId]
+      [uuidv4(), ref, contactId, assignRef, assignName, status_funil || null]
     );
     const convId = convRows[0].id
 
