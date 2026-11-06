@@ -159,7 +159,17 @@ async function fetchProfilePic(instanceName, phone) {
     );
     if (!res.ok) return null;
     const data = await res.json();
-    return data?.profilePictureUrl || data?.wid?.profilePictureUrl || null;
+    // Evolution v1: { profilePictureUrl: "..." }
+    // Evolution v2: { profilePicUrl: "..." } ou { url: "..." }
+    // Alguns builds: { wid: { profilePictureUrl: "..." } }
+    return (
+      data?.profilePictureUrl ||
+      data?.profilePicUrl ||
+      data?.url ||
+      data?.picture ||
+      data?.wid?.profilePictureUrl ||
+      null
+    );
   } catch {
     return null;
   }
