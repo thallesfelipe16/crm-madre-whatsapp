@@ -56,6 +56,24 @@ router.get('/instances/:ref/qr', async (req, res) => {
   }
 });
 
+// GET /admin/contacts/profile-pic-debug — diagnóstico: retorna resposta bruta da Evolution para uma foto
+router.get('/contacts/profile-pic-debug', async (req, res) => {
+  const { instance_ref, phone } = req.query;
+  if (!instance_ref || !phone) return res.status(400).json({ erro: 'instance_ref e phone obrigatórios' });
+  const EVOLUTION_URL = process.env.EVOLUTION_URL;
+  const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
+  try {
+    const r = await fetch(
+      `${EVOLUTION_URL}/chat/fetchProfilePictureUrl/${instance_ref}?number=${encodeURIComponent(phone)}`,
+      { headers: { 'Content-Type': 'application/json', apikey: EVOLUTION_API_KEY } }
+    );
+    const text = await r.text();
+    return res.json({ status: r.status, raw: text });
+  } catch (err) {
+    return res.json({ error: err.message });
+  }
+});
+
 // POST /admin/contacts/profile-pics — busca fotos de perfil em lote na Evolution API
 // Body: [{ instance_ref, phone }]  → retorna { "phone": "url | null" }
 router.post('/contacts/profile-pics', async (req, res) => {
