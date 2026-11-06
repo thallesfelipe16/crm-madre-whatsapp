@@ -553,6 +553,10 @@ router.get('/users', async (req, res) => {
       nome: u.nome,
       perfil: u.perfil,
       cor_marcador: u.cor_marcador || null,
+      unidade_id: u.unidade_id || null,
+      unidade_ids: Array.isArray(u.unidades)
+        ? u.unidades.map(un => un.id)
+        : (u.unidade_id ? [u.unidade_id] : []),
     })) });
   } catch (err) {
     return res.status(500).json({ erro: err.message, users: [] });
