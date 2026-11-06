@@ -563,6 +563,104 @@ router.get('/users', async (req, res) => {
   }
 });
 
+// GET /admin/stats/response-time — tempo médio de resposta por campus e por atendente
+// Query params: instance_refs (comma-separated, opcional), days (padrão 7)
+router.get('/stats/response-time', async (req, res) => {
+  try {
+    const { instance_refs, days = 7 } = req.query;
+    const daysNum = Math.min(Math.max(Number(days) || 7, 1), 90);
+
+    // Condição de filtro de instância
+    let instanceCond = '';
+    let instanceParams = [];
+    if (instance_refs) {
+      const refs = instance_refs.split(',').map(r => r.trim()).filter(Boolean);
+      if (refs.length === 1) {
+        instanceParams.push(refs[0]);
+        instanceCond = `AND c.instance_ref = $${instanceParams.length}`;
+      } else if (refs.length > 1) {
+        instanceParams.push(refs);
+        instanceCond = `AND c.instance_ref = ANY($${instanceParams.length})`;
+      }
+    }
+
+    // CTE: para cada mensagem inbound, encontra o próximo outbound na mesma conversa
+    // e calcula o tempo de resposta em minutos. Ignora respostas > 24h (fim de semana etc.)
+    const statsQuery = `
+      WITH pairs AS (
+        SELECT
+          c.instance_ref,
+          c.assigned_user_name,
+          i.id AS inbound_id,
+          i.received_at AS inbound_at,
+          MIN(o.received_at) AS first_reply_at
+        FROM wa_messages i
+        JOIN wa_conversations c ON c.id = i.conversation_id
+        JOIN wa_messages o
+          ON o.conversation_id = i.conversation_id
+         AND o.direction = 'outbound'
+         AND o.received_at > i.received_at
+        WHERE i.direction = 'inbound'
+          AND i.received_at > NOW() - ($1 || ' days')::INTERVAL
+          ${instanceCond}
+        GROUP BY c.instance_ref, c.assigned_user_name, i.id, i.received_at
+      ),
+      with_time AS (
+        SELECT
+          instance_ref,
+          assigned_user_name,
+          EXTRACT(EPOCH FROM (first_reply_at - inbound_at)) / 60.0 AS resp_min
+        FROM pairs
+        WHERE first_reply_at - inbound_at < INTERVAL '24 hours'
+          AND first_reply_at - inbound_at > INTERVAL '0 seconds'
+      )
+      SELECT
+        'campus' AS tipo,
+        instance_ref AS chave,
+        NULL::text AS user_name,
+        ROUND(AVG(resp_min)::numeric, 1) AS avg_min,
+        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY resp_min)::numeric, 1) AS median_min,
+        COUNT(*)::int AS total_respostas
+      FROM with_time
+      GROUP BY instance_ref
+
+      UNION ALL
+
+      SELECT
+        'atendente' AS tipo,
+        NULL AS chave,
+        COALESCE(assigned_user_name, '(sem atendente)') AS user_name,
+        ROUND(AVG(resp_min)::numeric, 1) AS avg_min,
+        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY resp_min)::numeric, 1) AS median_min,
+        COUNT(*)::int AS total_respostas
+      FROM with_time
+      WHERE assigned_user_name IS NOT NULL
+      GROUP BY assigned_user_name
+      ORDER BY tipo, avg_min
+    `;
+
+    const { rows } = await db.query(statsQuery, [daysNum, ...instanceParams]);
+
+    const by_campus = rows.filter(r => r.tipo === 'campus').map(r => ({
+      instance_ref: r.chave,
+      avg_min: Number(r.avg_min),
+      median_min: Number(r.median_min),
+      total: r.total_respostas,
+    }));
+    const by_atendente = rows.filter(r => r.tipo === 'atendente').map(r => ({
+      user_name: r.user_name,
+      avg_min: Number(r.avg_min),
+      median_min: Number(r.median_min),
+      total: r.total_respostas,
+    }));
+
+    return res.json({ days: daysNum, by_campus, by_atendente });
+  } catch (err) {
+    console.error('[stats] response-time error:', err.message);
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // POST /admin/instances/:ref/webhook-reset — re-configura webhook com webhook_base64=true
 router.post('/instances/:ref/webhook-reset', async (req, res) => {
   const { ref } = req.params;
