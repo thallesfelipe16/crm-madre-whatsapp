@@ -64,8 +64,9 @@ router.get('/contacts/profile-pic-debug', async (req, res) => {
   const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
   try {
     const r = await fetch(
-      `${EVOLUTION_URL}/chat/fetchProfilePictureUrl/${instance_ref}?number=${encodeURIComponent(phone)}`,
-      { headers: { 'Content-Type': 'application/json', apikey: EVOLUTION_API_KEY } }
+      `${EVOLUTION_URL}/chat/fetchProfilePictureUrl/${instance_ref}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: EVOLUTION_API_KEY },
+        body: JSON.stringify({ number: phone }) }
     );
     const text = await r.text();
     return res.json({ status: r.status, raw: text });

@@ -154,14 +154,15 @@ async function atualizarWebhook(instanceName, webhookUrl, webhookSecret) {
 async function fetchProfilePic(instanceName, phone) {
   try {
     const res = await fetch(
-      `${EVOLUTION_URL}/chat/fetchProfilePictureUrl/${instanceName}?number=${encodeURIComponent(phone)}`,
-      { headers: _headers() }
+      `${EVOLUTION_URL}/chat/fetchProfilePictureUrl/${instanceName}`,
+      {
+        method: 'POST',
+        headers: _headers(),
+        body: JSON.stringify({ number: phone }),
+      }
     );
     if (!res.ok) return null;
     const data = await res.json();
-    // Evolution v1: { profilePictureUrl: "..." }
-    // Evolution v2: { profilePicUrl: "..." } ou { url: "..." }
-    // Alguns builds: { wid: { profilePictureUrl: "..." } }
     return (
       data?.profilePictureUrl ||
       data?.profilePicUrl ||
