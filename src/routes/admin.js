@@ -601,7 +601,7 @@ router.get('/stats/response-time', async (req, res) => {
          AND o.direction = 'outbound'
          AND o.received_at > i.received_at
         WHERE i.direction = 'inbound'
-          AND i.received_at > NOW() - ($1 || ' days')::INTERVAL
+          AND i.received_at > NOW() - (INTERVAL '1 day' * $1)
           ${instanceCond}
         GROUP BY c.instance_ref, c.assigned_user_name, i.id, i.received_at
       ),
