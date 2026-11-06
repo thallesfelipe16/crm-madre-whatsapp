@@ -88,6 +88,8 @@ async function _processarMensagem(instanceRef, evento) {
       || msg.message?.imageMessage?.caption
       || msg.message?.videoMessage?.caption
       || msg.message?.documentMessage?.caption
+      || msg.message?.documentWithCaptionMessage?.message?.documentMessage?.caption
+      || msg.message?.contactMessage?.displayName
       || null;
 
     const { messageType, mediaMime } = _detectarTipo(msg.message);
@@ -188,12 +190,17 @@ function _extrairBase64Embutido(message) {
 
 function _detectarTipo(message) {
   if (!message) return { messageType: 'other', mediaMime: null };
-  if (message.conversation || message.extendedTextMessage) return { messageType: 'text', mediaMime: null };
+  if (message.conversation || message.extendedTextMessage) return { messageType: 'text',     mediaMime: null };
   if (message.imageMessage)    return { messageType: 'image',    mediaMime: message.imageMessage.mimetype    || 'image/jpeg' };
   if (message.audioMessage)    return { messageType: 'audio',    mediaMime: message.audioMessage.mimetype    || 'audio/ogg' };
   if (message.videoMessage)    return { messageType: 'video',    mediaMime: message.videoMessage.mimetype    || 'video/mp4' };
   if (message.documentMessage) return { messageType: 'document', mediaMime: message.documentMessage.mimetype || 'application/octet-stream' };
   if (message.stickerMessage)  return { messageType: 'sticker',  mediaMime: 'image/webp' };
+  if (message.contactMessage)  return { messageType: 'contact',  mediaMime: null };
+  if (message.documentWithCaptionMessage) return { messageType: 'document', mediaMime: message.documentWithCaptionMessage?.message?.documentMessage?.mimetype || 'application/octet-stream' };
+  if (message.viewOnceMessage || message.viewOnceMessageV2) return { messageType: 'viewonce', mediaMime: null };
+  if (message.reactionMessage) return { messageType: 'reaction', mediaMime: null };
+  if (message.pollCreationMessage) return { messageType: 'poll', mediaMime: null };
   return { messageType: 'other', mediaMime: null };
 }
 
