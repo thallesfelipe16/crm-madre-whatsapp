@@ -94,6 +94,25 @@ async function _processarMensagem(instanceRef, evento) {
       || msg.message?.contactMessage?.displayName
       || null;
 
+    // Mensagem editada chega como MESSAGES_UPSERT com editedMessage no topo
+    const editProto = msg.message?.editedMessage?.message?.protocolMessage;
+    if (editProto && editProto.type === 14) {
+      const originalMsgId = editProto.key?.id;
+      const novoBody =
+        editProto.editedMessage?.conversation ||
+        editProto.editedMessage?.extendedTextMessage?.text ||
+        null;
+      if (originalMsgId && novoBody) {
+        await db.query(
+          `UPDATE wa_messages SET body = $1, edited_at = NOW()
+           WHERE instance_ref = $2 AND provider_message_id = $3`,
+          [novoBody, instanceRef, originalMsgId]
+        );
+        console.log(`[WA] Mensagem editada (upsert): ${originalMsgId} (${instanceRef})`);
+      }
+      continue;
+    }
+
     const { messageType, mediaMime } = _detectarTipo(msg.message);
 
     // Tenta extrair base64 do próprio payload (quando webhook_base64=true na Evolution)
