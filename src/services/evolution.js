@@ -177,20 +177,23 @@ async function fetchProfilePic(instanceName, phone) {
 }
 
 async function editarMensagem(instanceName, messageId, remoteJid, newText) {
-  const res = await fetch(`${EVOLUTION_URL}/message/updateMessage/${instanceName}`, {
-    method: 'PUT',
-    headers: _headers(),
-    body: JSON.stringify({
-      number: remoteJid,
-      key: { id: messageId, remoteJid, fromMe: true },
-      text: newText,
-    }),
-  });
-  if (!res.ok) {
+  // Tenta PUT primeiro (Evolution v2.x recente); se 404/405 tenta POST (versões anteriores)
+  for (const method of ['PUT', 'POST']) {
+    const res = await fetch(`${EVOLUTION_URL}/message/updateMessage/${instanceName}`, {
+      method,
+      headers: _headers(),
+      body: JSON.stringify({
+        number: remoteJid,
+        key: { id: messageId, remoteJid, fromMe: true },
+        text: newText,
+      }),
+    });
+    if (res.ok) return res.json();
+    if (res.status === 404 || res.status === 405) continue; // tenta o próximo método
     const err = await res.text();
     throw new Error(`Evolution editarMensagem falhou (${res.status}): ${err}`);
   }
-  return res.json();
+  throw new Error('Evolution não suporta edição de mensagens nesta versão (endpoint não encontrado)');
 }
 
 module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook, fetchProfilePic, editarMensagem };
