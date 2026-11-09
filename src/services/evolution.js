@@ -176,4 +176,21 @@ async function fetchProfilePic(instanceName, phone) {
   }
 }
 
-module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook, fetchProfilePic };
+async function editarMensagem(instanceName, messageId, remoteJid, newText) {
+  const res = await fetch(`${EVOLUTION_URL}/message/updateMessage/${instanceName}`, {
+    method: 'PUT',
+    headers: _headers(),
+    body: JSON.stringify({
+      number: remoteJid,
+      key: { id: messageId, remoteJid, fromMe: true },
+      text: newText,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Evolution editarMensagem falhou (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
+module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook, fetchProfilePic, editarMensagem };

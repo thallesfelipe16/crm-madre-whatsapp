@@ -177,6 +177,44 @@ router.get('/conversations/:id/messages', async (req, res) => {
   }
 });
 
+// PUT /admin/messages/:id/edit — edita texto de mensagem enviada pelo CRM
+router.put('/messages/:id/edit', async (req, res) => {
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ erro: 'text obrigatório' });
+
+  try {
+    const { rows } = await db.query(
+      `SELECT m.id, m.instance_ref, m.provider_message_id, m.direction, m.message_type,
+              c.contact_id,
+              ct.phone_e164
+       FROM wa_messages m
+       JOIN wa_conversations c ON c.id = m.conversation_id
+       JOIN wa_contacts ct ON ct.id = c.contact_id
+       WHERE m.id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ erro: 'Mensagem não encontrada' });
+
+    const msg = rows[0];
+    if (msg.direction !== 'outbound') return res.status(400).json({ erro: 'Só é possível editar mensagens enviadas' });
+    if (msg.message_type !== 'text') return res.status(400).json({ erro: 'Só mensagens de texto podem ser editadas' });
+
+    const { editarMensagem } = require('../services/evolution');
+    const remoteJid = `${msg.phone_e164.replace('+', '')}@s.whatsapp.net`;
+    await editarMensagem(msg.instance_ref, msg.provider_message_id, remoteJid, text.trim());
+
+    await db.query(
+      `UPDATE wa_messages SET body = $1, edited_at = NOW() WHERE id = $2`,
+      [text.trim(), req.params.id]
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[WA] Erro ao editar mensagem:', err.message);
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // PATCH /admin/conversations/:id/assign — atribui conversa a um atendente
 router.patch('/conversations/:id/assign', async (req, res) => {
   const { user_ref, user_name } = req.body;
