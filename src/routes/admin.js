@@ -157,7 +157,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT id, direction, message_type, body, media_mime_type, media_key,
-              provider_timestamp, received_at, status
+              provider_timestamp, received_at, status, edited_at
        FROM wa_messages
        WHERE conversation_id = $1
        ORDER BY received_at ASC, id ASC`,

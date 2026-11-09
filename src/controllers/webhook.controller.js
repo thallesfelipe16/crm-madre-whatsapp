@@ -50,6 +50,8 @@ async function _processarEvento(instanceRef, eventName, evento, eventKey) {
   try {
     if (eventName === 'MESSAGES_UPSERT') {
       await _processarMensagem(instanceRef, evento);
+    } else if (eventName === 'MESSAGES_UPDATE') {
+      await _processarEdicao(instanceRef, evento);
     } else if (eventName === 'CONNECTION_UPDATE') {
       await _processarConexao(instanceRef, evento);
     }
@@ -162,6 +164,42 @@ async function _processarMensagem(instanceRef, evento) {
        direction, messageType, body, mediaMime || null,
        mediaKey ? JSON.stringify(mediaKey) : null, providerTimestamp]
     );
+  }
+}
+
+async function _processarEdicao(instanceRef, evento) {
+  const updates = Array.isArray(evento.data) ? evento.data : [evento.data];
+
+  for (const upd of updates) {
+    if (!upd?.key?.id) continue;
+
+    const originalMsgId = upd.key.id;
+
+    // A Evolution pode embalar a edição em dois formatos diferentes:
+    // 1) upd.update.editedMessage.message.protocolMessage.editedMessage.conversation
+    // 2) upd.update.message.protocolMessage.editedMessage.conversation
+    const proto =
+      upd.update?.editedMessage?.message?.protocolMessage ||
+      upd.update?.message?.protocolMessage ||
+      null;
+
+    if (!proto || proto.type !== 14) continue; // type 14 = MESSAGE_EDIT
+
+    const novoBody =
+      proto.editedMessage?.conversation ||
+      proto.editedMessage?.extendedTextMessage?.text ||
+      null;
+
+    if (!novoBody) continue;
+
+    await db.query(
+      `UPDATE wa_messages
+       SET body = $1, edited_at = NOW()
+       WHERE instance_ref = $2 AND provider_message_id = $3`,
+      [novoBody, instanceRef, originalMsgId]
+    );
+
+    console.log(`[WA] Mensagem editada: ${originalMsgId} (${instanceRef})`);
   }
 }
 
