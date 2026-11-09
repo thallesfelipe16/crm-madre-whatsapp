@@ -152,7 +152,7 @@ async function _processarMensagem(instanceRef, evento) {
          display_name = COALESCE(EXCLUDED.display_name, wa_contacts.display_name),
          updated_at = NOW()
        RETURNING id`,
-      [uuidv4(), instanceRef, phoneE164, msg.pushName || null]
+      [uuidv4(), instanceRef, phoneE164, direction === 'inbound' ? (msg.pushName || null) : null]
     );
     const contactId = contactRows[0].id;
 
