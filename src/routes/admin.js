@@ -152,6 +152,37 @@ router.get('/conversations', async (req, res) => {
   }
 });
 
+// GET /admin/conversations/:id — uma conversa pelo ID
+router.get('/conversations/:id', async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT c.id, c.instance_ref, c.state, c.last_message_at, c.unread_count,
+              c.assigned_user_ref, c.assigned_user_name,
+              c.status_funil, c.lead_crm_id, c.lead_nome,
+              ct.phone_e164, ct.display_name,
+              m.body AS last_body, m.direction AS last_direction,
+              COALESCE(
+                (SELECT json_agg(json_build_object('user_id', mk.user_id, 'user_name', mk.user_name, 'color', mk.color))
+                 FROM wa_markers mk WHERE mk.conversation_id = c.id),
+                '[]'::json
+              ) AS markers
+       FROM wa_conversations c
+       JOIN wa_contacts ct ON ct.id = c.contact_id
+       LEFT JOIN LATERAL (
+         SELECT body, direction FROM wa_messages
+         WHERE conversation_id = c.id
+         ORDER BY received_at DESC, id DESC LIMIT 1
+       ) m ON true
+       WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ erro: 'Conversa não encontrada.' });
+    return res.json(rows[0]);
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // GET /admin/conversations/:id/messages — mensagens de uma conversa
 router.get('/conversations/:id/messages', async (req, res) => {
   try {
@@ -452,6 +483,10 @@ router.post('/conversations/iniciar', async (req, res) => {
            VALUES ($1, $2, $3, NULL, 'internal', 'note', $4, NOW(), 'delivered')`,
           [uuidv4(), convId, ref, linhas.join('\n')]
         )
+        await db.query(
+          `UPDATE wa_conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          [convId]
+        )
       }
       return res.json({ conversation_id: convId, criada: false, draft: draftText });
     }
@@ -498,6 +533,12 @@ router.post('/conversations/iniciar', async (req, res) => {
         [uuidv4(), convId, ref, linhas.join('\n')]
       )
     }
+
+    // Garante que a conversa apareça no topo da lista (last_message_at nunca NULL)
+    await db.query(
+      `UPDATE wa_conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [convId]
+    )
 
     return res.json({ conversation_id: convId, criada: true, draft: draftText });
   } catch (err) {
