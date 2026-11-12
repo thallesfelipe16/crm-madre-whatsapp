@@ -230,6 +230,21 @@ async function _processarConexao(instanceRef, evento) {
     [state, instanceRef]
   );
   console.log(`[WA] Conexão ${instanceRef}: ${state}`);
+
+  // Tenta reconexão automática quando a instância desconecta
+  if (state === 'close') {
+    console.log(`[WA] Instância ${instanceRef} desconectou — tentando reconectar automaticamente...`);
+    // Aguarda 5s antes de tentar (evita loop imediato se a Evolution disparar close+connect seguidos)
+    setTimeout(async () => {
+      try {
+        const { obterQRCode } = require('../services/evolution');
+        await obterQRCode(instanceRef);
+        console.log(`[WA] Reconexão iniciada para ${instanceRef} — aguardando QR ou open`);
+      } catch (err) {
+        console.error(`[WA] Falha ao iniciar reconexão de ${instanceRef}:`, err.message);
+      }
+    }, 5000);
+  }
 }
 
 function _extrairBase64Embutido(message) {
