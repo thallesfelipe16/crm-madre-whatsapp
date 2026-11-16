@@ -488,7 +488,7 @@ router.post('/conversations/iniciar', async (req, res) => {
           [convId]
         )
       }
-      return res.json({ conversation_id: convId, criada: false, draft: draftText });
+      return res.json({ conversation_id: convId, criada: false });
     }
 
     // Não existe — cria contato + conversa (sem enviar mensagem ainda)
