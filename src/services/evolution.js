@@ -196,4 +196,16 @@ async function editarMensagem(instanceName, messageId, remoteJid, newText) {
   throw new Error('Evolution não suporta edição de mensagens nesta versão (endpoint não encontrado)');
 }
 
-module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook, fetchProfilePic, editarMensagem };
+async function reiniciarInstancia(instanceName) {
+  const res = await fetch(`${EVOLUTION_URL}/instance/restart/${instanceName}`, {
+    method: 'PUT',
+    headers: _headers(),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Evolution reiniciarInstancia falhou (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
+module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook, fetchProfilePic, editarMensagem, reiniciarInstancia };

@@ -232,16 +232,16 @@ async function _processarConexao(instanceRef, evento) {
   console.log(`[WA] Conexão ${instanceRef}: ${state}`);
 
   // Tenta reconexão automática quando a instância desconecta
+  // Usa restart (reutiliza sessão salva) — NÃO chama connect/QR que invalida a sessão
   if (state === 'close') {
-    console.log(`[WA] Instância ${instanceRef} desconectou — tentando reconectar automaticamente...`);
-    // Aguarda 5s antes de tentar (evita loop imediato se a Evolution disparar close+connect seguidos)
+    console.log(`[WA] Instância ${instanceRef} desconectou — tentando restart com sessão existente...`);
     setTimeout(async () => {
       try {
-        const { obterQRCode } = require('../services/evolution');
-        await obterQRCode(instanceRef);
-        console.log(`[WA] Reconexão iniciada para ${instanceRef} — aguardando QR ou open`);
+        const { reiniciarInstancia } = require('../services/evolution');
+        await reiniciarInstancia(instanceRef);
+        console.log(`[WA] Restart enviado para ${instanceRef} — aguardando open`);
       } catch (err) {
-        console.error(`[WA] Falha ao iniciar reconexão de ${instanceRef}:`, err.message);
+        console.error(`[WA] Falha ao reiniciar ${instanceRef}: ${err.message} — QR manual necessário`);
       }
     }, 5000);
   }
