@@ -3,7 +3,7 @@
 // Roda a cada INTERVALO_MIN minutos; reinicia se não houver mensagem inbound em SILENCE_HOURS horas.
 
 const INTERVALO_MIN  = 30;   // verificação a cada 30 min
-const SILENCE_HOURS  = 3;    // sem mensagem inbound por 3h = suspeito
+const SILENCE_HOURS  = 1;    // sem mensagem inbound por 1h = suspeito
 const HORA_INICIO    = 6;    // não reinicia antes das 06h (horário do servidor = UTC-3)
 const HORA_FIM       = 22;   // não reinicia depois das 22h
 
