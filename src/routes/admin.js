@@ -837,11 +837,13 @@ router.post('/instances/:ref/sync-messages', async (req, res) => {
     }
 
     const data = await evRes.json();
+    // Log para diagnóstico (remover após confirmar funcionamento)
+    console.log(`[WA] sync-messages Evolution raw (${ref}):`, JSON.stringify(data).slice(0, 300));
     // A Evolution pode retornar array direto ou { messages: [] } ou { records: [] }
     const msgs = Array.isArray(data) ? data : (data?.messages || data?.records || []);
 
     if (!msgs.length) {
-      return res.json({ ok: true, importadas: 0, total: 0 });
+      return res.json({ ok: true, importadas: 0, total: 0, _debug: { keys: Object.keys(data || {}), isArray: Array.isArray(data) } });
     }
 
     // Reutiliza o processador de mensagens do webhook controller
