@@ -239,7 +239,9 @@ async function _processarConexao(instanceRef, evento) {
         const { atualizarWebhook } = require('../services/evolution');
         const cfg = getInstance(instanceRef);
         if (!cfg) return;
-        const webhookUrl = `${process.env.APP_URL}/webhooks/${instanceRef}`;
+        // INTERNAL_APP_URL bypassa Cloudflare (Docker interno). APP_URL é fallback externo.
+        const baseUrl = process.env.INTERNAL_APP_URL || process.env.APP_URL;
+        const webhookUrl = `${baseUrl}/webhooks/${instanceRef}`;
         await atualizarWebhook(instanceRef, webhookUrl, cfg.webhookSecret);
         console.log(`[WA] Webhook re-registrado para ${instanceRef} após reconexão`);
       } catch (err) {

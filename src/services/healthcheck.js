@@ -61,7 +61,8 @@ async function verificar() {
         setTimeout(async () => {
           try {
             const cfg = getInstance(ref);
-            const webhookUrl = `${process.env.APP_URL}/webhooks/${ref}`;
+            const baseUrl = process.env.INTERNAL_APP_URL || process.env.APP_URL;
+            const webhookUrl = `${baseUrl}/webhooks/${ref}`;
             await atualizarWebhook(ref, webhookUrl, cfg.webhookSecret);
             console.log(`[healthcheck] ✓ ${ref}: webhook re-registrado após restart.`);
           } catch (err) {

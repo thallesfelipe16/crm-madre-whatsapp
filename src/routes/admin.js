@@ -783,7 +783,7 @@ router.post('/instances/:ref/webhook-reset', async (req, res) => {
   const cfg = getInstance(ref);
   if (!cfg) return res.status(404).json({ erro: 'Instância não configurada.' });
   // Permite sobrescrever a URL base via query ?app_url=... para diagnóstico de hairpin
-  const baseUrl = req.query.app_url || process.env.APP_URL;
+  const baseUrl = req.query.app_url || process.env.INTERNAL_APP_URL || process.env.APP_URL;
   const webhookUrl = `${baseUrl}/webhooks/${ref}`;
   try {
     const { atualizarWebhook } = require('../services/evolution');
