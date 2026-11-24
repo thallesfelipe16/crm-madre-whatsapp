@@ -231,6 +231,23 @@ async function _processarConexao(instanceRef, evento) {
   );
   console.log(`[WA] Conexão ${instanceRef}: ${state}`);
 
+  if (state === 'open') {
+    // Ao ficar online, re-registra o webhook (a Evolution pode perdê-lo após reconexão)
+    setTimeout(async () => {
+      try {
+        const { getInstance } = require('../config/instances');
+        const { atualizarWebhook } = require('../services/evolution');
+        const cfg = getInstance(instanceRef);
+        if (!cfg) return;
+        const webhookUrl = `${process.env.APP_URL}/webhooks/${instanceRef}`;
+        await atualizarWebhook(instanceRef, webhookUrl, cfg.webhookSecret);
+        console.log(`[WA] Webhook re-registrado para ${instanceRef} após reconexão`);
+      } catch (err) {
+        console.error(`[WA] Falha ao re-registrar webhook de ${instanceRef}: ${err.message}`);
+      }
+    }, 3000);
+  }
+
   // Tenta reconexão automática quando a instância desconecta
   // Usa restart (reutiliza sessão salva) — NÃO chama connect/QR que invalida a sessão
   if (state === 'close') {
