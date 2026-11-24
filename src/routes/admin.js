@@ -808,6 +808,52 @@ router.post('/instances/:ref/restart', async (req, res) => {
   }
 });
 
+// POST /admin/instances/:ref/sync-messages — importa mensagens perdidas diretamente da Evolution
+// Usa quando o webhook estava fora por um período e mensagens não chegaram ao CRM.
+// Body opcional: { since_hours: 24 } — quantas horas atrás buscar (padrão: 24, máx: 72)
+router.post('/instances/:ref/sync-messages', async (req, res) => {
+  const { ref } = req.params;
+  const { getInstance } = require('../config/instances');
+  if (!getInstance(ref)) return res.status(404).json({ erro: 'Instância não configurada.' });
+
+  const sinceHours = Math.min(Number(req.body?.since_hours) || 24, 72);
+  const sinceTs = Math.floor((Date.now() - sinceHours * 60 * 60 * 1000) / 1000);
+
+  const EVOLUTION_URL = process.env.EVOLUTION_URL;
+  const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
+
+  try {
+    // Busca mensagens recentes diretamente na Evolution
+    const evRes = await fetch(`${EVOLUTION_URL}/chat/findMessages/${ref}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: EVOLUTION_API_KEY },
+      body: JSON.stringify({ where: { messageTimestamp: { $gte: sinceTs } }, limit: 500 }),
+    });
+
+    if (!evRes.ok) {
+      const err = await evRes.text();
+      return res.status(502).json({ erro: `Evolution findMessages falhou (${evRes.status}): ${err}` });
+    }
+
+    const data = await evRes.json();
+    // A Evolution pode retornar array direto ou { messages: [] }
+    const msgs = Array.isArray(data) ? data : (data?.messages || data?.records || []);
+
+    if (!msgs.length) {
+      return res.json({ ok: true, importadas: 0, total: 0 });
+    }
+
+    // Reutiliza o processador de mensagens do webhook controller
+    const { receberEventoSync } = require('../controllers/webhook.controller');
+    const result = await receberEventoSync(ref, msgs);
+
+    console.log(`[WA] sync-messages ${ref}: ${result.importadas}/${msgs.length} importadas`);
+    return res.json({ ok: true, importadas: result.importadas, total: msgs.length, erros: result.erros });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
 // PATCH /admin/conversations/:id/status-funil — atualiza etapa do funil
 router.patch('/conversations/:id/status-funil', async (req, res) => {
   const { status_funil } = req.body;

@@ -316,4 +316,19 @@ function _normalizePhone(jid) {
   return num ? `+${num}` : null;
 }
 
-module.exports = { receberEvento };
+// Importa mensagens diretamente de uma lista (usado pelo sync-messages)
+async function receberEventoSync(instanceRef, msgs) {
+  let importadas = 0;
+  const erros = [];
+  for (const msg of msgs) {
+    try {
+      await _processarMensagem(instanceRef, { data: msg });
+      importadas++;
+    } catch (err) {
+      erros.push(err.message);
+    }
+  }
+  return { importadas, erros };
+}
+
+module.exports = { receberEvento, receberEventoSync };
