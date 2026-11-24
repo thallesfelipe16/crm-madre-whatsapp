@@ -197,15 +197,20 @@ async function editarMensagem(instanceName, messageId, remoteJid, newText) {
 }
 
 async function reiniciarInstancia(instanceName) {
-  const res = await fetch(`${EVOLUTION_URL}/instance/restart/${instanceName}`, {
-    method: 'PUT',
-    headers: _headers(),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Evolution reiniciarInstancia falhou (${res.status}): ${err}`);
+  // Tenta PUT (v2), GET (v1), POST (algumas versões) — para na primeira que funcionar
+  for (const [method, path] of [
+    ['PUT',  `${EVOLUTION_URL}/instance/restart/${instanceName}`],
+    ['GET',  `${EVOLUTION_URL}/instance/restart/${instanceName}`],
+    ['POST', `${EVOLUTION_URL}/instance/restart/${instanceName}`],
+  ]) {
+    const res = await fetch(path, { method, headers: _headers() });
+    if (res.ok) return res.json();
+    if (res.status !== 404 && res.status !== 405) {
+      const err = await res.text();
+      throw new Error(`Evolution reiniciarInstancia falhou (${res.status}): ${err}`);
+    }
   }
-  return res.json();
+  throw new Error('Evolution não suporta /instance/restart nesta versão — reinicie a Evolution manualmente.');
 }
 
 module.exports = { criarInstancia, obterQRCode, statusConexao, enviarTexto, enviarMidia, enviarAudio, baixarMidia, atualizarWebhook, fetchProfilePic, editarMensagem, reiniciarInstancia };
