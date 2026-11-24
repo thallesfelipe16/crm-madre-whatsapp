@@ -776,16 +776,32 @@ router.get('/stats/response-time', async (req, res) => {
   }
 });
 
-// POST /admin/instances/:ref/webhook-reset — re-configura webhook com webhook_base64=true
+// POST /admin/instances/:ref/webhook-reset — re-configura webhook
 router.post('/instances/:ref/webhook-reset', async (req, res) => {
   const { ref } = req.params;
   const { getInstance } = require('../config/instances');
   const cfg = getInstance(ref);
   if (!cfg) return res.status(404).json({ erro: 'Instância não configurada.' });
-  const webhookUrl = `${process.env.APP_URL}/webhooks/${ref}`;
+  // Permite sobrescrever a URL base via query ?app_url=... para diagnóstico de hairpin
+  const baseUrl = req.query.app_url || process.env.APP_URL;
+  const webhookUrl = `${baseUrl}/webhooks/${ref}`;
   try {
     const { atualizarWebhook } = require('../services/evolution');
     const result = await atualizarWebhook(ref, webhookUrl, cfg.webhookSecret);
+    return res.json({ ok: true, webhookUrl, result });
+  } catch (err) {
+    return res.status(500).json({ erro: err.message });
+  }
+});
+
+// POST /admin/instances/:ref/restart — reinicia instância na Evolution (mantém sessão)
+router.post('/instances/:ref/restart', async (req, res) => {
+  const { ref } = req.params;
+  const { getInstance } = require('../config/instances');
+  if (!getInstance(ref)) return res.status(404).json({ erro: 'Instância não configurada.' });
+  try {
+    const { reiniciarInstancia } = require('../services/evolution');
+    const result = await reiniciarInstancia(ref);
     return res.json({ ok: true, result });
   } catch (err) {
     return res.status(500).json({ erro: err.message });
