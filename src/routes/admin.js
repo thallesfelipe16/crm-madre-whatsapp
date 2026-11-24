@@ -816,18 +816,19 @@ router.post('/instances/:ref/sync-messages', async (req, res) => {
   const { getInstance } = require('../config/instances');
   if (!getInstance(ref)) return res.status(404).json({ erro: 'Instância não configurada.' });
 
-  const sinceHours = Math.min(Number(req.body?.since_hours) || 24, 72);
-  const sinceTs = Math.floor((Date.now() - sinceHours * 60 * 60 * 1000) / 1000);
+  // limit: quantas mensagens recentes buscar (padrão 200 — cobre ~1 dia em uso normal)
+  const limit = Math.min(Number(req.body?.limit) || 200, 1000);
 
   const EVOLUTION_URL = process.env.EVOLUTION_URL;
   const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 
   try {
-    // Busca mensagens recentes diretamente na Evolution
+    // Busca mensagens recentes diretamente na Evolution (sem filtro de data — varia por versão)
+    // Duplicatas são ignoradas pelo ON CONFLICT DO NOTHING no banco
     const evRes = await fetch(`${EVOLUTION_URL}/chat/findMessages/${ref}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: EVOLUTION_API_KEY },
-      body: JSON.stringify({ where: { messageTimestamp: { $gte: sinceTs } }, limit: 500 }),
+      body: JSON.stringify({ where: {}, limit }),
     });
 
     if (!evRes.ok) {
@@ -836,7 +837,7 @@ router.post('/instances/:ref/sync-messages', async (req, res) => {
     }
 
     const data = await evRes.json();
-    // A Evolution pode retornar array direto ou { messages: [] }
+    // A Evolution pode retornar array direto ou { messages: [] } ou { records: [] }
     const msgs = Array.isArray(data) ? data : (data?.messages || data?.records || []);
 
     if (!msgs.length) {
