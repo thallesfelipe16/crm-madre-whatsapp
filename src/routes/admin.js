@@ -194,10 +194,14 @@ router.get('/conversations/:id/messages', async (req, res) => {
        ORDER BY received_at ASC, id ASC`,
       [req.params.id]
     );
-    // Para mensagens com base64 inline, inclui data URL direto (evita round-trip e resolve 0:00/0:00)
+    // Imagem e áudio: inline data URL (evita round-trip, resolve 0:00/0:00 no áudio)
+    // Vídeo e documento: usa proxy endpoint — base64 inline de vídeo pode ter dezenas de MB,
+    // o que trava o browser ao parsear o JSON de mensagens
     const messages = rows.map(row => {
       const { media_key, ...rest } = row;
-      if (media_key?.type === 'inline' && media_key.base64 && media_key.mimetype) {
+      if (media_key?.type === 'inline' && media_key.base64 && media_key.mimetype
+          && !media_key.mimetype.startsWith('video/')
+          && !media_key.mimetype.startsWith('application/')) {
         return { ...rest, media_data_url: `data:${media_key.mimetype};base64,${media_key.base64}` };
       }
       return rest;
