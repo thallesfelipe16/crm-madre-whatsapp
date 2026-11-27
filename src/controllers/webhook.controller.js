@@ -124,18 +124,26 @@ async function _processarMensagem(instanceRef, evento) {
         mediaKey = { type: 'inline', base64: embeddedB64, mimetype: mediaMime };
         console.log(`[WA] base64 embutido extraído do webhook (${instanceRef})`);
       } else {
-        try {
-          const { baixarMidia } = require('../services/evolution');
-          const dl = await baixarMidia(instanceRef, { key: msg.key, message: msg.message });
-          const b64 = dl?.base64 || dl?.data;
-          if (b64) {
-            mediaKey = { type: 'inline', base64: b64, mimetype: dl?.mimetype || mediaMime };
-            console.log(`[WA] base64 baixado via Evolution (${instanceRef})`);
-          } else {
-            console.warn(`[WA] Evolution retornou vazio para mídia (${instanceRef}):`, JSON.stringify(dl));
+        const { baixarMidia } = require('../services/evolution');
+        // Retry com backoff: Evolution às vezes precisa processar a mensagem antes de disponibilizar o stream
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            if (attempt > 1) await new Promise(r => setTimeout(r, attempt * 1500));
+            const dl = await baixarMidia(instanceRef, { key: msg.key, message: msg.message });
+            const b64 = dl?.base64 || dl?.data;
+            if (b64) {
+              mediaKey = { type: 'inline', base64: b64, mimetype: dl?.mimetype || mediaMime };
+              console.log(`[WA] base64 baixado via Evolution (${instanceRef}, tentativa ${attempt})`);
+              break;
+            } else {
+              console.warn(`[WA] Evolution retornou vazio para mídia (${instanceRef}):`, JSON.stringify(dl));
+              break;
+            }
+          } catch (dlErr) {
+            if (attempt === 3) {
+              console.warn(`[WA] baixarMidia falhou após 3 tentativas (${instanceRef}):`, dlErr.message);
+            }
           }
-        } catch (dlErr) {
-          console.warn(`[WA] baixarMidia falhou (${instanceRef}):`, dlErr.message);
         }
       }
     }
